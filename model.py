@@ -1,142 +1,60 @@
+"""
+Model training and evaluation module
+"""
 import numpy as np
 import pandas as pd
-import joblib
-from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+from sklearn.linear_model import LogisticRegression
 from sklearn.svm import SVC
-from sklearn.metrics import (accuracy_score, precision_score, recall_score, 
-                             f1_score, roc_auc_score, confusion_matrix, 
-                             classification_report, roc_curve, auc)
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score
+from sklearn.inspection import permutation_importance
 import warnings
 warnings.filterwarnings('ignore')
 
 class DropoutPredictor:
-    """Modelo ML para predicción de abandono escolar"""
-    
-    def __init__(self, model_type='random_forest', random_state=42):
+    def __init__(self, model_type='random_forest'):
         self.model_type = model_type
-        self.random_state = random_state
-        self.model = self._create_model()
-        self.metrics = {}
-        self.feature_importance = None
-        self.feature_names = None
+        self.model = None
         
-    def _create_model(self):
-        """Crea el modelo según el tipo especificado"""
-        models = {
-            'logistic_regression': LogisticRegression(random_state=self.random_state, max_iter=1000),
-            'random_forest': RandomForestClassifier(n_estimators=100, random_state=self.random_state),
-            'gradient_boosting': GradientBoostingClassifier(n_estimators=100, random_state=self.random_state),
-            'svm': SVC(kernel='rbf', probability=True, random_state=self.random_state)
-        }
-        return models.get(self.model_type, RandomForestClassifier(random_state=self.random_state))
-    
     def train(self, X_train, y_train):
-        """Entrena el modelo"""
-        self.model.fit(X_train, y_train)
-        self.feature_names = getattr(X_train, 'columns', None)
+        if self.model_type == 'random_forest':
+            self.model = RandomForestClassifier(n_estimators=100, random_state=42, class_weight='balanced')
+        elif self.model_type == 'gradient_boost':
+            self.model = GradientBoostingClassifier(n_estimators=100, random_state=42)
+        elif self.model_type == 'logistic':
+            self.model = LogisticRegression(random_state=42, max_iter=1000, class_weight='balanced')
+        elif self.model_type == 'svm':
+            self.model = SVC(probability=True, random_state=42, class_weight='balanced')
         
-        # Obtener importancia de características
-        if hasattr(self.model, 'feature_importances_'):
-            self.feature_importance = self.model.feature_importances_
-    
-    def predict(self, X):
-        """Realiza predicciones"""
-        return self.model.predict(X)
-    
-    def predict_proba(self, X):
-        """Predicciones con probabilidades"""
-        return self.model.predict_proba(X)
+        self.model.fit(X_train, y_train)
+        return self
     
     def evaluate(self, X_test, y_test):
-        """Evalúa el modelo con múltiples métricas"""
-        y_pred = self.predict(X_test)
-        y_pred_proba = self.predict_proba(X_test)[:, 1]
+        y_pred = self.model.predict(X_test)
+        y_proba = self.model.predict_proba(X_test)[:, 1] if hasattr(self.model, 'predict_proba') else None
         
-        self.metrics = {
+        metrics = {
             'accuracy': accuracy_score(y_test, y_pred),
             'precision': precision_score(y_test, y_pred, zero_division=0),
             'recall': recall_score(y_test, y_pred, zero_division=0),
             'f1': f1_score(y_test, y_pred, zero_division=0),
-            'roc_auc': roc_auc_score(y_test, y_pred_proba),
-            'confusion_matrix': confusion_matrix(y_test, y_pred),
-            'classification_report': classification_report(y_test, y_pred)
+            'roc_auc': roc_auc_score(y_test, y_proba) if y_proba is not None else None
         }
-        
-        return self.metrics
+        return metrics
     
-    def get_feature_importance(self, feature_names=None, top_n=10):
-        """Retorna las características más importantes"""
-        if self.feature_importance is None:
-            return None
-        
-        if feature_names is not None:
-            importance_df = pd.DataFrame({
-                'feature': feature_names,
-                'importance': self.feature_importance
-            }).sort_values('importance', ascending=False)
-        else:
-            importance_df = pd.DataFrame({
-                'feature': [f'Feature_{i}' for i in range(len(self.feature_importance))],
-                'importance': self.feature_importance
-            }).sort_values('importance', ascending=False)
-        
-        return importance_df.head(top_n)
-    
-    def save_model(self, filepath):
-        """Guarda el modelo entrenado"""
-        joblib.dump(self.model, filepath)
-    
-    def load_model(self, filepath):
-        """Carga un modelo entrenado"""
-        self.model = joblib.load(filepath)
-    
-    def get_metrics(self):
-        """Retorna las métricas de evaluación"""
-        return self.metrics
-    
-    def get_recommendation(self, pred, prob=None):
-        """Proporciona recomendaciones basadas en predicción"""
-        if prob is None:
-            if pred == 1:
-                return "🚨 RIESGO DE ABANDONO DETECTADO"
+    def get_feature_importance(self, X_test, y_test, feature_names, top_n=10):
+        """Importancia segura para árboles, lineales y SVM"""
+        try:
+            if hasattr(self.model, 'feature_importances_'):
+                importances = self.model.feature_importances_
+            elif hasattr(self.model, 'coef_'):
+                importances = np.abs(self.model.coef_[0])
             else:
-                return "✅ BAJO RIESGO DE ABANDONO"
-        
-        if prob > 0.7:
-            return "🚨 RIESGO ALTO de abandono escolar"
-        elif prob > 0.4:
-            return "⚠️ RIESGO MEDIO de abandono escolar"
-        else:
-            return "✅ BAJO RIESGO de abandono escolar"
-
-
-def compare_models(X_train, X_test, y_train, y_test):
-    """Entrena y compara múltiples modelos"""
-    
-    model_types = [
-        'logistic_regression',
-        'random_forest',
-        'gradient_boosting',
-        'svm'
-    ]
-    
-    results = {}
-    
-    for model_type in model_types:
-        print(f"Entrenando {model_type}...")
-        
-        # Create and train model
-        predictor = DropoutPredictor(model_type=model_type)
-        predictor.train(X_train, y_train)
-        
-        # Evaluate
-        metrics = predictor.evaluate(X_test, y_test)
-        
-        # Store results
-        results[model_type] = {
-            'model': predictor,
-            'metrics': metrics
-        }
-    
-    return results
+                # Fallback: Permutation Importance (funciona para cualquier modelo)
+                perm_imp = permutation_importance(self.model, X_test, y_test, n_repeats=10, random_state=42, n_jobs=-1)
+                importances = perm_imp.importances_mean
+                
+            df_imp = pd.DataFrame({'feature': feature_names, 'importance': importances})
+            return df_imp.sort_values('importance', ascending=False).head(top_n)
+        except Exception:
+            return None
