@@ -5,187 +5,173 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
-import os
-import sys
-from data_loader import load_and_prepare_data
-from data_preprocessing import prepare_data
-from model import DropoutPredictor
-import warnings
-warnings.filterwarnings('ignore')
+import plotly.graph_objects as go
+from data_preprocessing import prepare_data, handle_missing_values, encode_categorical
+from model import DropoutPredictor, compare_models
 
-# Configuración de página
 st.set_page_config(
-    page_title="🎓 ML Clásico - Predicción de Abandono Escolar",
+    page_title="Predicción de Abandono Escolar",
     page_icon="🎓",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Estado de sesión
+# Session state initialization
 if 'df' not in st.session_state: st.session_state.df = None
-if 'prep_data' not in st.session_state: st.session_state.prep_data = None
-if 'models' not in st.session_state: st.session_state.models = {}
+if 'results' not in st.session_state: st.session_state.results = {}
+
+def create_sample_dataset(n_samples=200):
+    np.random.seed(42)
+    return pd.DataFrame({
+        'Edad': np.random.randint(15, 25, n_samples),
+        'GPA': np.random.uniform(1.5, 4.0, n_samples),
+        'Asistencia': np.random.uniform(50, 100, n_samples),
+        'Horas_Estudio': np.random.uniform(0, 10, n_samples),
+        'Socioeconomico': np.random.choice(['Bajo', 'Medio', 'Alto'], n_samples),
+        'Primer_Trimestre': np.random.choice(['Aprobado', 'Reprobado'], n_samples),
+        'Motivacion': np.random.choice(['Baja', 'Media', 'Alta'], n_samples),
+        'Abandono': np.random.choice([0, 1], n_samples, p=[0.7, 0.3])
+    })
 
 # Sidebar
 st.sidebar.title("📋 Navegación")
-page = st.sidebar.radio("Selecciona:", ["🏠 Inicio", "📊 EDA", "🤖 Entrenar", "🔮 Predecir"])
-
+page = st.sidebar.radio("Selecciona:", ["🏠 Inicio", "📊 EDA", "🤖 Entrenamiento", "🔮 Predicción"])
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 📥 Cargar Datos")
-load_btn = st.sidebar.button("🌐 Cargar Dataset UCI Oficial")
-demo_btn = st.sidebar.button("🎲 Usar Datos Demo")
-
-if load_btn:
-    df, msg = load_and_prepare_data(source='uci')
-    st.session_state.df = df
-    st.sidebar.success(msg)
-elif demo_btn:
-    df, msg = load_and_prepare_data(source='demo')
-    st.session_state.df = df
-    st.sidebar.success(msg)
+uploaded_file = st.sidebar.file_uploader("Sube un CSV", type=['csv'])
+if uploaded_file:
+    st.session_state.df = pd.read_csv(uploaded_file)
+    st.sidebar.success("✅ CSV cargado")
+elif st.sidebar.button("Usar datos demo"):
+    st.session_state.df = create_sample_dataset()
+    st.sidebar.success("✅ Datos demo cargados")
 
 if st.session_state.df is not None:
-    st.sidebar.info(f"📊 Dataset: {len(st.session_state.df)} filas × {len(st.session_state.df.columns)} columnas")
+    st.sidebar.info(f"Tamaño: {st.session_state.df.shape[0]} filas × {st.session_state.df.shape[1]} columnas")
 
-# ==================== PÁGINAS ====================
+# ==================== PAGES ====================
 if page == "🏠 Inicio":
-    st.markdown('<div class="main-title">🎓 Predicción de Abandono Escolar</div>', unsafe_allow_html=True)
+    st.markdown('<h1 style="text-align:center;color:#1f77b4;">🎓 Predicción de Abandono Escolar</h1>', unsafe_allow_html=True)
     st.markdown("---")
-    
-    # Renderizar README.md dinámicamente
-    readme_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "README.md")
-    if os.path.exists(readme_path):
-        with open(readme_path, "r", encoding="utf-8") as f:
-            st.markdown(f.read())
-    else:
-        st.warning("⚠️ `README.md` no encontrado en la carpeta raíz. Asegúrate de subirlo al repositorio.")
+    col1, col2 = st.columns(2)
+    with col1:
         st.markdown("""
-        ## 📋 Proyecto ML Clásico
-        - **Tipo**: Clasificación binaria supervisada
-        - **Dataset**: UCI Student Dropout (≥500 registros)
-        - **Modelos**: Logistic Regression, Random Forest, Gradient Boosting, SVM
-        - **Métrica principal**: F1-Score (macro)
+        ## 📚 Sobre el Proyecto
+        Implementa un modelo de ML clásico para predecir el riesgo de abandono escolar.
+        ### 🎯 Formulación
+        - **Tipo:** Supervisado
+        - **Tarea:** Clasificación binaria
+        - **Target:** Abandono (0/1)
+        - **Métrica:** F1-Score, ROC-AUC
         """)
+    with col2:
+        st.markdown("""
+        ## 🤖 Modelos
+        1. Logistic Regression
+        2. Random Forest
+        3. Gradient Boosting
+        4. SVM
+        """)
+    st.markdown("---")
+    st.metric("📊 Modelos", "4", "Clasificadores")
+    st.metric("📈 Métricas", "6+", "Evaluación")
+    st.metric("🎓 Categoría", "ML Clásico", "Fundació URV")
 
 elif page == "📊 EDA":
-    st.title("📊 Análisis Exploratorio de Datos")
-    if st.session_state.df is None:
-        st.warning("⚠️ Carga datos primero en la barra lateral")
-    else:
-        df = st.session_state.df
-        # Buscar columna target
-        target_candidates = ['target', 'status', 'abandono', 'y']
-        target_col = next((c for c in target_candidates if c in df.columns), None)
-        
-        if target_col is None:
-            st.error("❌ No se encontró columna objetivo. El dataset debe contener 'target', 'status' o similar.")
-        else:
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Registros", f"{len(df):,}")
-            c2.metric("Features", f"{len(df.columns)-1}")
-            c3.metric("Dropout Rate", f"{(df[target_col].astype(str).str.lower().str.contains('dropout')).mean()*100:.1f}%")
-            
-            st.bar_chart(df[target_col].value_counts(), use_container_width=True)
-            
-            if df.select_dtypes('number').shape[1] > 2:
-                st.subheader("🔗 Top Correlaciones Numéricas")
-                corr = df.select_dtypes('number').corr().abs()
-                top = corr[corr.columns[0]].sort_values(ascending=False).head(10).drop(corr.columns[0], errors='ignore')
-                st.bar_chart(top, use_container_width=True)
-
-elif page == "🤖 Entrenar":
-    st.title("🤖 Entrenamiento de Modelos")
+    st.title("📊 Análisis Exploratorio")
     if st.session_state.df is None:
         st.warning("⚠️ Carga datos primero")
     else:
         df = st.session_state.df
-        target_col = next((c for c in ['target', 'status', 'abandono'] if c in df.columns), None)
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Registros", len(df))
+        c2.metric("Features", df.shape[1])
+        c3.metric("Faltantes", df.isnull().sum().sum())
+        if 'Abandono' in df.columns:
+            c4.metric("Tasa Abandono", f"{df['Abandono'].mean()*100:.1f}%")
         
-        if not target_col:
-            st.error("❌ Columna objetivo no encontrada")
-        elif st.button("🚀 Entrenar 4 Modelos"):
-            with st.spinner("Entrenando... (esto toma ~15s)"):
+        st.dataframe(df.head(10), use_container_width=True)
+        st.dataframe(df.describe(), use_container_width=True)
+        
+        num_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+        if 'Abandono' in num_cols: num_cols.remove('Abandono')
+        if num_cols:
+            fig = px.box(df, x='Abandono' if 'Abandono' in df.columns else None, y=num_cols[0], title=f"Distribución: {num_cols[0]}")
+            st.plotly_chart(fig, use_container_width=True)
+
+elif page == "🤖 Entrenamiento":
+    st.title("🤖 Entrenamiento de Modelos")
+    if st.session_state.df is None:
+        st.warning("⚠️ Carga datos primero")
+    elif 'Abandono' not in st.session_state.df.columns:
+        st.error("❌ El dataset debe tener columna 'Abandono'")
+    else:
+        if st.button("🚀 Entrenar 4 Modelos"):
+            with st.spinner("Entrenando..."):
                 try:
-                    data = prepare_data(df, target_col=target_col)
-                    st.session_state.prep_data = data
+                    df_clean = handle_missing_values(st.session_state.df)
+                    X = df_clean.drop(columns=['Abandono'])
+                    y = df_clean['Abandono']
+                    X_encoded, encoders = encode_categorical(X)
+                    from sklearn.model_selection import train_test_split
+                    X_train, X_test, y_train, y_test = train_test_split(X_encoded, y, test_size=0.2, random_state=42, stratify=y)
+                    from sklearn.preprocessing import StandardScaler
+                    scaler = StandardScaler()
+                    X_train = scaler.fit_transform(X_train)
+                    X_test = scaler.transform(X_test)
                     
-                    models_list = ['logistic_regression', 'random_forest', 'gradient_boosting', 'svm']
-                    for m in models_list:
-                        clf = DropoutPredictor(model_type=m)
-                        clf.train(data['X_train'], data['y_train'])
-                        st.session_state.models[m] = clf
-                        
-                    st.success("✅ Modelos entrenados y transformadores guardados")
+                    st.session_state.results = compare_models(X_train, X_test, y_train, y_test)
+                    st.session_state.feature_names = X_encoded.columns.tolist()
+                    st.session_state.X_test = X_test
+                    st.session_state.y_test = y_test
+                    st.success("✅ Modelos entrenados")
                 except Exception as e:
-                    st.error(f"❌ Error: {str(e)}")
-                    
-        # ✅ CORRECCIÓN APLICADA AQUÍ:
-        if st.session_state.prep_data is not None:
-            st.subheader("📊 Comparativa de Modelos")
+                    st.error(f"❌ Error: {e}")
+        
+        if st.session_state.results:
             rows = []
-            for name, clf in st.session_state.models.items():
-                m = clf.evaluate(st.session_state.prep_data['X_test'], st.session_state.prep_data['y_test'])
-                rows.append({'Modelo': name.replace('_', ' ').title(), **m})
+            for name, res in st.session_state.results.items():
+                m = res['metrics']
+                rows.append({'Modelo': name.replace('_',' ').title(), 'Accuracy': f"{m['accuracy']:.4f}", 'Precision': f"{m['precision']:.4f}", 'Recall': f"{m['recall']:.4f}", 'F1': f"{m['f1']:.4f}"})
             st.dataframe(pd.DataFrame(rows), use_container_width=True)
             
-            st.subheader("🔍 Importancia de Características")
-            sel = st.selectbox("Modelo:", list(st.session_state.models.keys()))
-            imp = st.session_state.models[sel].get_feature_importance(
-                st.session_state.prep_data['feature_names'], top_n=10
-            )
-            if imp is not None and not imp.empty:
+            sel = st.selectbox("Modelo para importancia:", list(st.session_state.results.keys()))
+            imp = st.session_state.results[sel]['model'].get_feature_importance(st.session_state.feature_names)
+            if imp is not None:
                 st.plotly_chart(px.bar(imp, x='importance', y='feature', orientation='h'), use_container_width=True)
 
-elif page == "🔮 Predecir":
+elif page == "🔮 Predicción":
     st.title("🔮 Predicción Individual")
-    if not st.session_state.models:
-        st.info("ℹ️ Entrena modelos primero en 🤖 Entrenar")
+    if not st.session_state.results:
+        st.info("ℹ️ Entrena modelos primero")
     else:
-        data = st.session_state.prep_data
-        st.markdown("📌 *Introduce valores para ver la sensibilidad del modelo*")
-        
         col1, col2 = st.columns(2)
         with col1:
-            adm = st.slider("📝 Nota admisión", 0, 200, 100)
-            g1 = st.slider("📚 Nota 1er sem", 0.0, 20.0, 10.0)
-            app1 = st.slider("✅ Aprobadas 1er sem", 0, 15, 7)
-            age = st.number_input("🎂 Edad", 17, 50, 19)
+            edad = st.number_input("Edad", 15, 25, 18)
+            gpa = st.slider("GPA", 1.5, 4.0, 3.0)
+            asistencia = st.slider("Asistencia (%)", 50, 100, 85)
+            horas = st.slider("Horas Estudio", 0, 10, 5)
         with col2:
-            bec = st.selectbox("🎁 Beca", [0, 1], format_func=lambda x: "Sí" if x else "No")
-            desp = st.slider("📉 Desempleo (%)", 0.0, 30.0, 10.0)
-            infl = st.slider("📈 Inflación (%)", -5.0, 15.0, 2.0)
-            att = st.selectbox("🕒 Horario", [1, 2], format_func=lambda x: "Mañana" if x==1 else "Tarde")
+            socio = st.selectbox("Socioeconómico", ['Bajo', 'Medio', 'Alto'])
+            trim = st.selectbox("1er Trimestre", ['Aprobado', 'Reprobado'])
+            motiv = st.selectbox("Motivación", ['Baja', 'Media', 'Alta'])
             
-        if st.button("🔮 Predecir Trayectoria", type="primary"):
+        if st.button("🔮 Predecir"):
             try:
-                pred_dict = {
-                    'admission_grade': adm, 'curricular_units_1st_sem_grade': g1,
-                    'curricular_units_1st_sem_approved': app1, 'age_at_enrollment': age,
-                    'scholarship_holder': bec, 'unemployment_rate': desp,
-                    'inflation_rate': infl, 'daytime_evening_attendance': att
-                }
-                for col in data['feature_names']:
-                    if col not in pred_dict:
-                        pred_dict[col] = data['medians'].get(col, 0) if col in data['num_cols'] else data['modes'].get(col, 0)
-                        
-                pred_df = pd.DataFrame([pred_dict])
-                for col in data['cat_cols']:
-                    le = data['encoders'][col]
-                    val = str(pred_df[col].values[0])
-                    pred_df[col] = le.transform([val])[0] if val in le.classes_ else 0
-                    
-                pred_df = pred_df[data['feature_names']]
-                pred_scaled = data['scaler'].transform(pred_df)
+                pred = pd.DataFrame({'Edad': [edad], 'GPA': [gpa], 'Asistencia': [asistencia], 'Horas_Estudio': [horas], 'Socioeconomico': [socio], 'Primer_Trimestre': [trim], 'Motivacion': [motiv]})
+                pred_enc, _ = encode_categorical(pred)
+                from sklearn.preprocessing import StandardScaler
+                pred_scaled = StandardScaler().fit_transform(pred_enc)
                 
-                st.markdown("---")
                 st.subheader("🎯 Resultados")
                 cols = st.columns(4)
-                for i, (name, clf) in enumerate(st.session_state.models.items()):
+                for i, (name, res) in enumerate(st.session_state.results.items()):
                     with cols[i]:
-                        p = clf.model.predict(pred_scaled)[0]
-                        prob = clf.model.predict_proba(pred_scaled)[0][1] if hasattr(clf.model, 'predict_proba') else 0
-                        risk = "🔴 ALTO RIESGO" if p == 1 else "🟢 BAJO RIESGO"
-                        st.metric(name.replace('_', ' ').title(), risk, delta=f"{prob:.1%}")
+                        p = res['model'].predict(pred_scaled)[0]
+                        prob = res['model'].predict_proba(pred_scaled)[0][1] if hasattr(res['model'].model, 'predict_proba') else 0
+                        st.metric(name.replace('_',' ').title(), "🔴 ALTO" if p==1 else "🟢 BAJO", f"{prob:.1%}")
             except Exception as e:
-                st.error(f"❌ Error: {str(e)}")
-                st.exception(e)
+                st.error(f"❌ Error: {e}")
+
+st.markdown("---")
+st.markdown("<p style='text-align:center;color:#888;'>🎓 ML Clásico | Artificial Intelligence Foundations | Fundació URV</p>", unsafe_allow_html=True)
