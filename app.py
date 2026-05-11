@@ -50,32 +50,79 @@ if st.session_state.df is not None:
     st.sidebar.info(f"Tamaño: {st.session_state.df.shape[0]} filas × {st.session_state.df.shape[1]} columnas")
 
 # ==================== PAGES ====================
-if page == "🏠 Inicio":
-    st.markdown('<h1 style="text-align:center;color:#1f77b4;">🎓 Predicción de Abandono Escolar</h1>', unsafe_allow_html=True)
+elif page == "🏠 Inicio":
+    st.markdown('<h1 style="text-align:center; color:#1f77b4;">🎓 Predicción de Abandono Escolar</h1>', unsafe_allow_html=True)
     st.markdown("---")
+
+    # Columnas principales: Proyecto vs Modelos
     col1, col2 = st.columns(2)
+
     with col1:
         st.markdown("""
         ## 📚 Sobre el Proyecto
-        Implementa un modelo de ML clásico para predecir el riesgo de abandono escolar.
-        ### 🎯 Formulación
-        - **Tipo:** Supervisado
-        - **Tarea:** Clasificación binaria
-        - **Target:** Abandono (0/1)
-        - **Métrica:** F1-Score, ROC-AUC
+        Este proyecto implementa un **modelo de Machine Learning clásico** para predecir el riesgo de abandono escolar en estudiantes.
+
+        ### 🎯 Objetivos
+        - ✅ Identificar estudiantes en riesgo de abandono
+        - 📋 Proporcionar recomendaciones de intervención temprana
+        - 🔍 Analizar factores académicos y socioeconómicos clave
+
+        ### 📋 Formulación del Problema
+        | Aspecto | Detalle |
+        |---------|---------|
+        | **Tipo de aprendizaje** | Supervisado |
+        | **Tarea** | Clasificación binaria |
+        | **Variable objetivo** | Abandono (0/1) |
+        | **Métrica de éxito** | F1-Score, ROC-AUC |
         """)
+
     with col2:
         st.markdown("""
-        ## 🤖 Modelos
-        1. Logistic Regression
-        2. Random Forest
-        3. Gradient Boosting
-        4. SVM
+        ## 🤖 Modelos Implementados
+        Se utilizan 4 clasificadores clásicos de `scikit-learn`:
+
+        1. **Logistic Regression** 📈
+           - Modelo lineal, rápido y altamente interpretable
+
+        2. **Random Forest** 🌲
+           - Ensemble robusto, resistente a overfitting
+
+        3. **Gradient Boosting** 🚀
+           - Boosting secuencial para máxima precisión
+
+        4. **Support Vector Machine (SVM)** 🎯
+           - Óptimo para espacios de alta dimensionalidad
         """)
+
     st.markdown("---")
-    st.metric("📊 Modelos", "4", "Clasificadores")
-    st.metric("📈 Métricas", "6+", "Evaluación")
-    st.metric("🎓 Categoría", "ML Clásico", "Fundació URV")
+
+    # Métricas técnicas
+    st.subheader("📊 Resumen Técnico")
+    m1, m2, m3 = st.columns(3)
+    m1.metric("🤖 Modelos", "4", "Clasificadores")
+    m2.metric("📈 Métricas", "6+", "Evaluación")
+    m3.metric("🎓 Categoría", "ML Clásico", "Fundació URV")
+
+    st.markdown("---")
+
+    # Características del Dataset (tabla interactiva)
+    st.subheader("📊 Características del Dataset")
+    st.info("El modelo utiliza las siguientes variables para realizar la predicción:")
+    
+    features_df = pd.DataFrame({
+        "Característica": ["Edad", "GPA", "Asistencia", "Horas_Estudio", "Socioeconomico", "Primer_Trimestre", "Motivacion"],
+        "Descripción": [
+            "Edad del estudiante",
+            "Promedio de calificaciones (0-5 o 0-20)",
+            "Porcentaje de asistencia a clases",
+            "Horas dedicadas al estudio semanal",
+            "Nivel socioeconómico familiar",
+            "Desempeño en el primer trimestre",
+            "Nivel de motivación académica"
+        ],
+        "Tipo": ["Numérica", "Numérica", "Numérica", "Numérica", "Categórica", "Categórica", "Categórica"]
+    })
+    st.dataframe(features_df, use_container_width=True, hide_index=True)
 
 elif page == "📊 EDA":
     st.title("📊 Análisis Exploratorio")
