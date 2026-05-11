@@ -3,65 +3,88 @@ Data loading and preprocessing from UCI Student Dropout Dataset
 """
 import pandas as pd
 import numpy as np
-import streamlit as st
 import requests
-from io import StringIO
+import zipfile
+import os
+from pathlib import Path
 import warnings
 warnings.filterwarnings('ignore')
 
-@st.cache_data(ttl=3600)
 def load_uci_dataset():
-    """
-    Carga el dataset UCI con manejo de errores robusto y headers anti-bloqueo
-    """
-    urls = [
-        "https://archive.ics.uci.edu/static/public/697/predict+students+dropout+and+academic+success.csv",
-        "https://archive.ics.uci.edu/ml/machine-learning-databases/00697/predict+students+dropout+and+academic+success.csv"
-    ]
-    
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36'
-    }
-    
-    for url in urls:
-        try:
-            response = requests.get(url, headers=headers, timeout=30)
-            if response.status_code == 200:
-                df = pd.read_csv(StringIO(response.text))
-                return df
-        except Exception:
-            continue
+    """Load the UCI Student Dropout and Academic Success dataset"""
+    try:
+        url = "https://archive.ics.uci.edu/static/public/697/predict+students+dropout+and+academic+success.zip"
+        response = requests.get(url, timeout=30)
+        response.raise_for_status()
+        
+        temp_dir = Path("temp_dataset")
+        temp_dir.mkdir(exist_ok=True)
+        
+        zip_path = temp_dir / "dataset.zip"
+        with open(zip_path, 'wb') as f:
+            f.write(response.content)
             
+        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            zip_ref.extractall(temp_dir)
+            
+        csv_files = list(temp_dir.glob("**/*.csv"))
+        if csv_files:
+            df = pd.read_csv(csv_files[0])
+            return df
+    except Exception as e:
+        print(f"⚠️ Fallback a demo: {e}")
     return None
 
-def create_sample_dataset(n_samples=2000):
-    """Genera dataset demo con correlaciones educativas reales"""
+def create_sample_dataset():
+    """Create a realistic sample dataset if UCI is unavailable"""
     np.random.seed(42)
+    n_samples = 4424
     data = {
-        'admission_grade': np.random.uniform(80, 180, n_samples),
-        'curricular_units_1st_sem_grade': np.random.uniform(5, 18, n_samples),
-        'curricular_units_1st_sem_approved': np.random.randint(0, 10, n_samples),
-        'age_at_enrollment': np.random.randint(17, 40, n_samples),
-        'scholarship_holder': np.random.choice([0, 1], n_samples),
-        'unemployment_rate': np.random.uniform(3, 15, n_samples),
-        'target': np.random.choice(['Dropout', 'Graduate'], n_samples, p=[0.35, 0.65])
+        'Admission_Grade': np.random.uniform(95, 150, n_samples),
+        'Curricular_Units_1st_Sem_Grade': np.random.uniform(0, 20, n_samples),
+        'Age': np.random.randint(18, 50, n_samples),
+        'Unemployment_Rate': np.random.uniform(2, 12, n_samples),
+        'Status': np.random.choice(['Dropout', 'Graduate', 'Enrolled'], n_samples, p=[0.3, 0.5, 0.2])
     }
     return pd.DataFrame(data)
 
-def clean_columns(df):
-    """Normaliza nombres de columnas a snake_case"""
-    df.columns = df.columns.str.strip().str.lower().str.replace(r'[^a-z0-9]', '_', regex=True)
+def load_dataset():
+    """Main function to load dataset"""
+    df = load_uci_dataset()
+    if df is not None:
+        return df, "UCI Dataset"
+    else:
+        return create_sample_dataset(), "Sample Dataset"
+
+def preprocess_dataset(df):
+    """Basic preprocessing and target mapping"""
+    # Clean missing values
+    df = df.dropna(thresh=len(df) * 0.5, axis=1)
+    num_cols = df.select_dtypes(include=[np.number]).columns
+    df[num_cols] = df[num_cols].fillna(df[num_cols].median())
+    
+    cat_cols = df.select_dtypes(include=['object']).columns
+    for col in cat_cols:
+        mode_val = df[col].mode()
+        if not mode_val.empty:
+            df[col] = df[col].fillna(mode_val[0])
+            
+    # Map target to binary 'Abandono'
+    target_col = None
+    for col in ['Target', 'Status', 'Y', 'target', 'status']:
+        if col in df.columns:
+            target_col = col
+            break
+            
+    if target_col:
+        df['Abandono'] = df[target_col].apply(
+            lambda x: 1 if 'dropout' in str(x).lower() else 0
+        )
+    elif 'Abandono' not in df.columns:
+        df['Abandono'] = np.random.choice([0, 1], len(df), p=[0.7, 0.3])
+        
     return df
 
-def load_and_prepare_data(source='uci'):
-    """Función unificada para cargar datos"""
-    if source == 'uci':
-        df = load_uci_dataset()
-        if df is not None:
-            df = clean_columns(df)
-            return df, "✅ Dataset UCI cargado correctamente"
-            
-    # Fallback
-    df = create_sample_dataset()
-    df = clean_columns(df)
-    return df, "⚠️ Fallback: Dataset demo generado (correlaciones reales)"
+if __name__ == "__main__":
+    df, source = load_dataset()
+    print(f"✅ Dataset cargado desde: {source} | Shape: {df.shape}")
