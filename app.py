@@ -2,152 +2,185 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
-import plotly.graph_objects as go
-from data_preprocessing import prepare_data
+from data_preprocessing import clean_uci_columns, prepare_uci_data
 from model import DropoutPredictor
 import warnings
 warnings.filterwarnings('ignore')
 
-st.set_page_config(page_title="Predicción de Abandono Escolar", page_icon="🎓", layout="wide")
+st.set_page_config(page_title="🎓 Predicción Abandono Escolar", page_icon="🎓", layout="wide")
 
-# ==================== SESIÓN & ESTADO ====================
+# ==================== ESTADO INICIAL ====================
 if 'df' not in st.session_state: st.session_state.df = None
-if 'trained_models' not in st.session_state: st.session_state.trained_models = {}
-if 'scaler' not in st.session_state: st.session_state.scaler = None
-if 'encoders' not in st.session_state: st.session_state.encoders = None
-if 'feature_names' not in st.session_state: st.session_state.feature_names = []
-if 'cat_cols' not in st.session_state: st.session_state.cat_cols = []
-
-# ==================== DATASET DEMO REALISTA ====================
-def create_realistic_sample_dataset(n_samples=500):
-    np.random.seed(42)
-    gpa = np.random.uniform(1.5, 4.0, n_samples)
-    asistencia = np.random.uniform(50, 100, n_samples)
-    horas = np.random.uniform(0, 10, n_samples)
-    motivacion = np.random.choice(['Baja', 'Media', 'Alta'], n_samples, p=[0.3, 0.5, 0.2])
-    primer_trim = np.random.choice(['Aprobado', 'Reprobado'], n_samples, p=[0.6, 0.4])
-    socioeconomico = np.random.choice(['Bajo', 'Medio', 'Alto'], n_samples, p=[0.4, 0.4, 0.2])
-    edad = np.random.randint(15, 25, n_samples)
-    
-    # Correlación real: bajo rendimiento + baja motivación = mayor probabilidad de abandono
-    risk_score = (
-        (4.0 - gpa)/2.5 * 0.3 + 
-        (100 - asistencia)/50 * 0.2 + 
-        (10 - horas)/10 * 0.15 +
-        np.where(motivacion=='Baja', 0.3, np.where(motivacion=='Media', 0.15, 0.0)) +
-        np.where(primer_trim=='Reprobado', 0.25, 0.0) +
-        np.where(socioeconomico=='Bajo', 0.15, 0.0)
-    )
-    abandono = (risk_score > np.percentile(risk_score, 70)).astype(int)
-    
-    return pd.DataFrame({
-        'Edad': edad, 'GPA': gpa, 'Asistencia': asistencia, 'Horas_Estudio': horas,
-        'Socioeconomico': socioeconomico, 'Primer_Trimestre': primer_trim,
-        'Motivacion': motivacion, 'Abandono': abandono
-    })
+if 'prep_data' not in st.session_state: st.session_state.prep_data = None
+if 'models' not in st.session_state: st.session_state.models = {}
 
 # ==================== SIDEBAR ====================
 st.sidebar.title("📋 Navegación")
 page = st.sidebar.radio("Selecciona:", ["🏠 Inicio", "📊 EDA", "🤖 Entrenar", "🔮 Predecir"])
 
-uploaded_file = st.sidebar.file_uploader("📥 Cargar CSV (requiere columna 'Abandono')", type=['csv'])
+st.sidebar.markdown("---")
+st.sidebar.markdown("### 📥 Cargar Datos")
+uploaded_file = st.sidebar.file_uploader("Subir CSV (columna 'Target' requerida)", type=['csv'])
 if uploaded_file:
     st.session_state.df = pd.read_csv(uploaded_file)
-    st.sidebar.success("✅ CSV cargado")
-elif st.session_state.df is None and st.sidebar.button("Usar datos demo"):
-    st.session_state.df = create_realistic_sample_dataset()
-    st.sidebar.success("✅ Demo cargada (correlación real)")
+    st.session_state.df = clean_uci_columns(st.session_state.df)
+    st.sidebar.success("✅ CSV cargado y limpiado")
+elif st.sidebar.button("Cargar Dataset UCI Oficial"):
+    try:
+        # Descarga directa desde UCI (alternativa: descarga manual)
+        url = "https://archive.ics.uci.edu/static/public/697/predict+students+dropout+and+academic+success.csv"
+        st.session_state.df = pd.read_csv(url)
+        st.session_state.df = clean_uci_columns(st.session_state.df)
+        st.sidebar.success("✅ Dataset UCI cargado")
+    except Exception as e:
+        st.sidebar.error(f"❌ Error cargando UCI: {str(e)}")
 
 if st.session_state.df is not None:
-    st.sidebar.info(f"Dataset: {st.session_state.df.shape[0]} filas × {st.session_state.df.shape[1]} columnas")
+    st.sidebar.info(f"📊 Dataset: {len(st.session_state.df)} filas × {len(st.session_state.df.columns)} columnas")
 
 # ==================== PÁGINAS ====================
-if page == "🤖 Entrenar":
-    st.title("🤖 Entrenamiento de Modelos")
-    if st.session_state.df is None or 'Abandono' not in st.session_state.df.columns:
-        st.error("❌ Sube un CSV con columna 'Abandono' o usa el demo.")
+if page == "🏠 Inicio":
+    st.title("🎓 ML Clásico - Predicción de Abandono Escolar")
+    st.markdown("Proyecto para *Artificial Intelligence Foundations* | Fundació URV")
+    st.info("✅ Pipeline completo: UCI Dataset (36 cols) → Preprocessing → 4 Modelos → Streamlit")
+    st.markdown("---")
+    st.markdown("📌 **Características clave:**\n"
+                "- Clasificación binaria: `Dropout` vs `Graduate`\n"
+                "- Métrica principal: F1-Score (macro)\n"
+                "- Modelos: Random Forest, Gradient Boost, Logistic, SVM\n"
+                "- Predicción robusta con reutilización de transformadores")
+
+elif page == "📊 EDA":
+    st.title("📊 Análisis Exploratorio")
+    if st.session_state.df is None:
+        st.warning("⚠️ Carga datos primero")
     else:
         df = st.session_state.df
-        if st.button("🚀 Entrenar Modelos"):
-            with st.spinner("Entrenando..."):
-                data = prepare_data(df, target_col='Abandono')
-                st.session_state.scaler = data['scaler']
-                st.session_state.encoders = data['encoders']
-                st.session_state.feature_names = data['feature_names']
-                st.session_state.cat_cols = data['categorical_cols']
-                
-                models = ['random_forest', 'gradient_boost', 'logistic', 'svm']
-                results = {}
-                for m in models:
-                    clf = DropoutPredictor(model_type=m)
-                    clf.train(data['X_train'], data['y_train'])
-                    results[m] = {
-                        'model': clf,
-                        'metrics': clf.evaluate(data['X_test'], data['y_test']),
-                        'importance': clf.get_feature_importance(data['X_test'], data['y_test'], data['feature_names'])
-                    }
-                st.session_state.trained_models = results
-                st.success("✅ Modelos entrenados correctamente")
-
-        if st.session_state.trained_models:
-            st.subheader("📊 Comparativa de Modelos")
-            rows = []
-            for name, res in st.session_state.trained_models.items():
-                m = res['metrics']
-                rows.append({'Modelo': name.replace('_', ' ').title(), **m})
-            st.dataframe(pd.DataFrame(rows), use_container_width=True)
+        if 'target' not in df.columns:
+            st.error("❌ El dataset debe contener columna 'target'")
+        else:
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Total", len(df))
+            c2.metric("Features", len(df.columns)-1)
+            c3.metric("Dropout Rate", f"{(df['target']=='dropout').mean()*100:.1f}%")
             
-            st.subheader("🔍 Importancia de Características (Random Forest)")
-            imp_df = st.session_state.trained_models['random_forest']['importance']
-            if imp_df is not None:
-                fig = px.bar(imp_df, x='importance', y='feature', orientation='h', 
-                            title="Top Features (RF)", labels={'feature':'Característica'})
-                st.plotly_chart(fig, use_container_width=True)
+            fig = px.histogram(df, x='target', title="Distribución Clases")
+            st.plotly_chart(fig, use_container_width=True)
+            
+            st.subheader("🔗 Correlación Top 10 con Target")
+            num_cols = df.select_dtypes('number').columns
+            corr = df[num_cols].corr()['target'].abs().sort_values(ascending=False).head(10)
+            st.bar_chart(corr.drop('target', errors='ignore'))
+
+elif page == "🤖 Entrenar":
+    st.title("🤖 Entrenamiento de Modelos")
+    if st.session_state.df is None or 'target' not in st.session_state.df.columns:
+        st.warning("⚠️ Carga dataset con columna 'target'")
+    elif st.button("🚀 Entrenar 4 Modelos"):
+        with st.spinner("Entrenando... (esto toma ~10-20s)"):
+            try:
+                data = prepare_uci_data(st.session_state.df, target_col='target')
+                st.session_state.prep_data = data
+                
+                models_to_train = ['random_forest', 'gradient_boost', 'logistic', 'svm']
+                for m in models_to_train:
+                    clf = DropoutPredictor(m)
+                    clf.train(data['X_train'], data['y_train'])
+                    st.session_state.models[m] = clf
+                    
+                st.success("✅ Modelos entrenados y transformadores guardados en memoria")
+            except Exception as e:
+                st.error(f"❌ Error: {str(e)}")
+                
+    if st.session_state.prep_data:
+        st.subheader("📊 Resultados")
+        res = []
+        for name, clf in st.session_state.models.items():
+            m = clf.evaluate(st.session_state.prep_data['X_test'], st.session_state.prep_data['y_test'])
+            res.append({'Modelo': name.title().replace('_',' '), **m})
+        st.dataframe(pd.DataFrame(res), use_container_width=True)
+        
+        st.subheader("🔍 Importancia de Características")
+        sel_model = st.selectbox("Modelo:", list(st.session_state.models.keys()))
+        imp_df = st.session_state.models[sel_model].get_feature_importance(
+            st.session_state.prep_data['X_test'],
+            st.session_state.prep_data['y_test'],
+            st.session_state.prep_data['feature_names']
+        )
+        if imp_df is not None and not imp_df.empty:
+            st.plotly_chart(px.bar(imp_df, x='importance', y='feature', orientation='h'), use_container_width=True)
 
 elif page == "🔮 Predecir":
     st.title("🔮 Predicción Individual")
-    if not st.session_state.trained_models:
-        st.info("ℹ️ Entrena los modelos primero en la pestaña 🤖 Entrenar")
+    if not st.session_state.models:
+        st.info("ℹ️ Entrena modelos primero en la pestaña 🤖")
     else:
-        st.subheader("📋 Datos del Estudiante")
-        col1, col2 = st.columns(2)
+        data = st.session_state.prep_data
+        st.markdown("📌 *Introduce valores extremos para verificar sensibilidad del modelo*")
+        
+        col1, col2, col3 = st.columns(3)
         with col1:
-            edad = st.number_input("Edad", 15, 25, 18)
-            gpa = st.slider("GPA", 1.5, 4.0, 2.0)
-            asistencia = st.slider("Asistencia (%)", 50, 100, 60)
-            horas = st.slider("Horas Estudio", 0, 10, 2)
+            adm_grade = st.slider("📝 Nota admisión (0-200)", 0, 200, 95)
+            sem1_grade = st.slider("📚 Nota 1er sem (0-20)", 0.0, 20.0, 9.5)
+            age = st.number_input("🎂 Edad", 17, 50, 19)
         with col2:
-            socio = st.selectbox("Nivel Socioeconómico", ['Bajo', 'Medio', 'Alto'])
-            trim = st.selectbox("1er Trimestre", ['Aprobado', 'Reprobado'])
-            motiv = st.selectbox("Motivación", ['Baja', 'Media', 'Alta'])
+            app_units = st.slider("✅ Asignaturas aprobadas 1er sem", 0, 10, 5)
+            unemployment = st.slider("📉 Desempleo (%)", 0, 30, 10)
+            inflation = st.slider("📈 Inflación (%)", -5, 15, 2)
+        with col3:
+            scholarship = st.selectbox("🎁 Beca", [0, 1], format_func=lambda x: "Sí" if x else "No")
+            gender = st.selectbox("⚧ Género", [1, 2], format_func=lambda x: "Hombre" if x==1 else "Mujer")
+            attendance = st.selectbox("🕒 Horario", [1, 2], format_func=lambda x: "Mañana" if x==1 else "Tarde")
             
-        if st.button("🔮 Predecir"):
-            pred_df = pd.DataFrame([{
-                'Edad': edad, 'GPA': gpa, 'Asistencia': asistencia, 'Horas_Estudio': horas,
-                'Socioeconomico': socio, 'Primer_Trimestre': trim, 'Motivacion': motiv
-            }])
-            
-            # 1. Codificar categóricas con encoders entrenados
-            for col in st.session_state.cat_cols:
-                le = st.session_state.encoders[col]
-                val = pred_df[col].values[0]
-                # Manejar categorías no vistas
-                if val not in le.classes_:
-                    pred_df[col] = 'Desconocido'
-                pred_df[col] = le.transform([val])[0]
+        if st.button("🔮 Predecir Trayectoria", type="primary"):
+            try:
+                # 1. Crear DataFrame con las columnas exactas del entrenamiento
+                pred_dict = {
+                    'admission_grade': adm_grade,
+                    'curricular_units_1st_sem__grade_': sem1_grade,
+                    'curricular_units_1st_sem__approved_': app_units,
+                    'age_at_enrollment': age,
+                    'unemployment_rate': unemployment,
+                    'inflation_rate': inflation,
+                    'scholarship_holder': scholarship,
+                    'gender': gender,
+                    'daytime_evening_attendance': attendance
+                }
                 
-            # 2. Reordenar columnas y escalar
-            pred_df = pred_df[st.session_state.feature_names]
-            pred_scaled = st.session_state.scaler.transform(pred_df)
-            
-            # 3. Predecir con todos los modelos
-            st.markdown("---")
-            st.subheader("🎯 Resultados")
-            cols = st.columns(4)
-            for idx, (name, res) in enumerate(st.session_state.trained_models.items()):
-                with cols[idx]:
-                    clf = res['model']
-                    pred = clf.model.predict(pred_scaled)[0]
-                    prob = clf.model.predict_proba(pred_scaled)[0][1] if hasattr(clf.model, 'predict_proba') else None
-                    color = "🔴 ALTO RIESGO" if pred == 1 else "🟢 BAJO RIESGO"
-                    st.metric(f"{name.replace('_',' ').title()}", color, delta=f"{prob:.1%}" if prob else None)
+                # 2. Rellenar las 36 columnas faltantes con medianas/modas del entrenamiento
+                for col in data['feature_names']:
+                    if col not in pred_dict:
+                        if col in data['num_cols']:
+                            pred_dict[col] = data['medians'][col]
+                        elif col in data['cat_cols']:
+                            pred_dict[col] = data['modes'][col]
+                            
+                pred_df = pd.DataFrame([pred_dict])
+                
+                # 3. Aplicar EXACTAMENTE los mismos encoders del entrenamiento
+                for col in data['cat_cols']:
+                    le = data['encoders'][col]
+                    val = str(pred_df[col].values[0])
+                    # Manejar categorías no vistas
+                    if val not in le.classes_:
+                        val = le.classes_[0]
+                    pred_df[col] = le.transform([val])[0]
+                    
+                # 4. Reordenar columnas y escalar
+                pred_df = pred_df[data['feature_names']]
+                pred_scaled = data['scaler'].transform(pred_df)
+                
+                # 5. Predecir
+                st.markdown("---")
+                st.subheader("🎯 Resultados")
+                cols = st.columns(4)
+                for i, (name, clf) in enumerate(st.session_state.models.items()):
+                    with cols[i]:
+                        p = clf.model.predict(pred_scaled)[0]
+                        prob = clf.model.predict_proba(pred_scaled)[0][1]
+                        risk = "🔴 ALTO RIESGO" if p == 1 else "🟢 BAJO RIESGO"
+                        st.metric(name.title().replace('_',' '), risk, delta=f"{prob:.1%}")
+                        
+            except Exception as e:
+                st.error(f"❌ Error en predicción: {str(e)}")
+                st.exception(e)
