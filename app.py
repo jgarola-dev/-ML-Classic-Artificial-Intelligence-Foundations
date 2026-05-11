@@ -119,7 +119,8 @@ elif page == "🤖 Entrenar":
                 except Exception as e:
                     st.error(f"❌ Error: {str(e)}")
                     
-        if st.session_state.prep_
+        # ✅ CORRECCIÓN APLICADA AQUÍ:
+        if st.session_state.prep_data is not None:
             st.subheader("📊 Comparativa de Modelos")
             rows = []
             for name, clf in st.session_state.models.items():
@@ -143,10 +144,8 @@ elif page == "🔮 Predecir":
         data = st.session_state.prep_data
         st.markdown("📌 *Introduce valores para ver la sensibilidad del modelo*")
         
-        # Inputs dinámicos según features disponibles
         col1, col2 = st.columns(2)
         with col1:
-            # Features clave UCI (si existen, sino sliders genéricos)
             adm = st.slider("📝 Nota admisión", 0, 200, 100)
             g1 = st.slider("📚 Nota 1er sem", 0.0, 20.0, 10.0)
             app1 = st.slider("✅ Aprobadas 1er sem", 0, 15, 7)
@@ -159,31 +158,22 @@ elif page == "🔮 Predecir":
             
         if st.button("🔮 Predecir Trayectoria", type="primary"):
             try:
-                # 1. Crear input con TODAS las columnas del entrenamiento
                 pred_dict = {
-                    'admission_grade': adm,
-                    'curricular_units_1st_sem_grade': g1,
-                    'curricular_units_1st_sem_approved': app1,
-                    'age_at_enrollment': age,
-                    'scholarship_holder': bec,
-                    'unemployment_rate': desp,
-                    'inflation_rate': infl,
-                    'daytime_evening_attendance': att
+                    'admission_grade': adm, 'curricular_units_1st_sem_grade': g1,
+                    'curricular_units_1st_sem_approved': app1, 'age_at_enrollment': age,
+                    'scholarship_holder': bec, 'unemployment_rate': desp,
+                    'inflation_rate': infl, 'daytime_evening_attendance': att
                 }
-                # Rellenar faltantes con medianas/modas del entrenamiento
                 for col in data['feature_names']:
                     if col not in pred_dict:
                         pred_dict[col] = data['medians'].get(col, 0) if col in data['num_cols'] else data['modes'].get(col, 0)
                         
                 pred_df = pd.DataFrame([pred_dict])
-                
-                # 2. Aplicar EXACTAMENTE los mismos encoders del entrenamiento
                 for col in data['cat_cols']:
                     le = data['encoders'][col]
                     val = str(pred_df[col].values[0])
                     pred_df[col] = le.transform([val])[0] if val in le.classes_ else 0
                     
-                # 3. Escalar y predecir
                 pred_df = pred_df[data['feature_names']]
                 pred_scaled = data['scaler'].transform(pred_df)
                 
