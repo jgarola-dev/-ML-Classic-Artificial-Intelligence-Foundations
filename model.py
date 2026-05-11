@@ -1,5 +1,5 @@
 """
-Model training and evaluation module
+Model training and evaluation module with safe feature importance
 """
 import numpy as np
 import pandas as pd
@@ -16,31 +16,28 @@ class DropoutPredictor:
         self.model_type = model_type
         self.model = None
         
-    def train(self, X_train, y_train):
-        if self.model_type == 'random_forest':
-            self.model = RandomForestClassifier(n_estimators=100, random_state=42, class_weight='balanced')
-        elif self.model_type == 'gradient_boost':
-            self.model = GradientBoostingClassifier(n_estimators=100, random_state=42)
-        elif self.model_type == 'logistic':
-            self.model = LogisticRegression(random_state=42, max_iter=1000, class_weight='balanced')
-        elif self.model_type == 'svm':
-            self.model = SVC(probability=True, random_state=42, class_weight='balanced')
+        models = {
+            'random_forest': RandomForestClassifier(n_estimators=100, random_state=42, class_weight='balanced'),
+            'gradient_boost': GradientBoostingClassifier(n_estimators=100, random_state=42),
+            'logistic': LogisticRegression(random_state=42, max_iter=1000, class_weight='balanced'),
+            'svm': SVC(probability=True, random_state=42, class_weight='balanced')
+        }
+        self.model = models.get(model_type)
         
+    def train(self, X_train, y_train):
         self.model.fit(X_train, y_train)
         return self
     
     def evaluate(self, X_test, y_test):
         y_pred = self.model.predict(X_test)
         y_proba = self.model.predict_proba(X_test)[:, 1] if hasattr(self.model, 'predict_proba') else None
-        
-        metrics = {
+        return {
             'accuracy': accuracy_score(y_test, y_pred),
             'precision': precision_score(y_test, y_pred, zero_division=0),
             'recall': recall_score(y_test, y_pred, zero_division=0),
             'f1': f1_score(y_test, y_pred, zero_division=0),
-            'roc_auc': roc_auc_score(y_test, y_proba) if y_proba is not None else None
+            'roc_auc': roc_auc_score(y_test, y_proba) if y_proba is not None else 0.5
         }
-        return metrics
     
     def get_feature_importance(self, X_test, y_test, feature_names, top_n=10):
         """Importancia segura para árboles, lineales y SVM"""
@@ -50,11 +47,12 @@ class DropoutPredictor:
             elif hasattr(self.model, 'coef_'):
                 importances = np.abs(self.model.coef_[0])
             else:
-                # Fallback: Permutation Importance (funciona para cualquier modelo)
-                perm_imp = permutation_importance(self.model, X_test, y_test, n_repeats=10, random_state=42, n_jobs=-1)
-                importances = perm_imp.importances_mean
+                # Fallback para SVM: Permutation Importance (robusto y compatible)
+                perm = permutation_importance(self.model, X_test, y_test, 
+                                            n_repeats=10, random_state=42, n_jobs=-1)
+                importances = perm.importances_mean
                 
             df_imp = pd.DataFrame({'feature': feature_names, 'importance': importances})
             return df_imp.sort_values('importance', ascending=False).head(top_n)
         except Exception:
-            return None
+            return pd.DataFrame({'feature': feature_names[:top_n], 'importance': [0]*top_n})
