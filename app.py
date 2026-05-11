@@ -124,27 +124,228 @@ elif page == "🏠 Inicio":
     })
     st.dataframe(features_df, use_container_width=True, hide_index=True)
 
-elif page == "📊 EDA":
-    st.title("📊 Análisis Exploratorio")
+elif page == "📊 Análisis EDA":
+    st.title("📊 Análisis Exploratorio de Datos")
+    
     if st.session_state.df is None:
-        st.warning("⚠️ Carga datos primero")
+        st.warning("⚠️ Por favor, carga datos primero en la barra lateral")
     else:
-        df = st.session_state.df
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Registros", len(df))
-        c2.metric("Features", df.shape[1])
-        c3.metric("Faltantes", df.isnull().sum().sum())
-        if 'Abandono' in df.columns:
-            c4.metric("Tasa Abandono", f"{df['Abandono'].mean()*100:.1f}%")
+        df = st.session_state.df.copy()
         
-        st.dataframe(df.head(10), use_container_width=True)
-        st.dataframe(df.describe(), use_container_width=True)
+        # ==================== KPIs PRINCIPALES ====================
+        st.subheader("📈 Indicadores Clave")
+        kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
         
-        num_cols = df.select_dtypes(include=[np.number]).columns.tolist()
-        if 'Abandono' in num_cols: num_cols.remove('Abandono')
-        if num_cols:
-            fig = px.box(df, x='Abandono' if 'Abandono' in df.columns else None, y=num_cols[0], title=f"Distribución: {num_cols[0]}")
-            st.plotly_chart(fig, use_container_width=True)
+        with kpi1:
+            st.metric("📊 Registros", f"{len(df):,}")
+        with kpi2:
+            st.metric("📋 Columnas", len(df.columns))
+        with kpi3:
+            st.metric("❌ Valores Faltantes", df.isnull().sum().sum())
+        with kpi4:
+            numeric_cols = df.select_dtypes(include=np.number).columns
+            st.metric("🔢 Variables Numéricas", len(numeric_cols))
+        with kpi5:
+            if 'Abandono' in df.columns:
+                rate = df['Abandono'].mean() * 100
+                st.metric("📉 Tasa de Abandono", f"{rate:.1f}%")
+            else:
+                st.metric("🎯 Target", "No detectado")
+        
+        st.markdown("---")
+        
+        # ==================== VISTA PREVIA + TIPOS ====================
+        col1, col2 = st.columns([2, 1])
+        
+        with col1:
+            with st.expander("📋 Vista Previa de Datos (primeras 10 filas)", expanded=True):
+                st.dataframe(df.head(10), use_container_width=True)
+        
+        with col2:
+            with st.expander("📝 Tipos de Datos"):
+                dtype_df = pd.DataFrame({
+                    'Columna': df.columns,
+                    'Tipo': df.dtypes.values,
+                    'Únicos': [df[c].nunique() for c in df.columns]
+                })
+                st.dataframe(dtype_df, use_container_width=True, hide_index=True)
+        
+        # ==================== ESTADÍSTICAS DESCRIPTIVAS ====================
+        st.subheader("📊 Estadísticas Descriptivas")
+        
+        # Pestañas para organizar mejor
+        tab1, tab2, tab3 = st.tabs(["🔢 Resumen Numérico", "📈 Distribuciones", "🔗 Correlaciones"])
+        
+        with tab1:
+            if numeric_cols:
+                stats_df = df[numeric_cols].describe().T
+                stats_df['CV (%)'] = (stats_df['std'] / stats_df['mean'] * 100).round(2)
+                st.dataframe(stats_df.round(3), use_container_width=True)
+                
+                # Botón de descarga
+                csv = stats_df.round(3).to_csv()
+                st.download_button(
+                    label="📥 Descargar Estadísticas (CSV)",
+                    data=csv,
+                    file_name="estadisticas_eda.csv",
+                    mime="text/csv"
+                )
+        
+        # ==================== DISTRIBUCIONES VISUALES ====================
+        with tab2:
+            st.markdown("### 🔍 Visualización de Distribuciones")
+            
+            col_dist1, col_dist2 = st.columns(2)
+            
+            with col_dist1:
+                # Selector de variable para histograma + boxplot
+                selected_var = st.selectbox("Selecciona variable para análisis:", numeric_cols)
+                
+                if selected_var:
+                    # Histograma con curva de densidad
+                    fig_hist = px.histogram(df, x=selected_var, nbins=30, 
+                                           title=f"Distribución: {selected_var}",
+                                           marginal="box", color_discrete_sequence=['#636EFA'])
+                    st.plotly_chart(fig_hist, use_container_width=True)
+            
+            with col_dist2:
+                # Si hay target, comparar distribuciones por clase
+                if 'Abandono' in df.columns and selected_var:
+                    fig_compare = px.box(df, x='Abandono', y=selected_var,
+                                        title=f"{selected_var} por Clase de Abandono",
+                                        color='Abandono', color_discrete_map={0: '#00c853', 1: '#d32f2f'})
+                    st.plotly_chart(fig_compare, use_container_width=True)
+            
+            # Gráfico de barras para variables categóricas
+            cat_cols = df.select_dtypes(include=['object']).columns.tolist()
+            if cat_cols:
+                st.markdown("#### 📊 Distribución de Variables Categóricas")
+                selected_cat = st.selectbox("Variable categórica:", cat_cols)
+                
+                if selected_cat:
+                    counts = df[selected_cat].value_counts()
+                    fig_cat = px.bar(x=counts.index, y=counts.values,
+                                    title=f"Frecuencia: {selected_cat}",
+                                    labels={'x': selected_cat, 'y': 'Frecuencia'},
+                                    color=counts.values, color_continuous_scale='Viridis')
+                    st.plotly_chart(fig_cat, use_container_width=True)
+        
+        # ==================== MATRIZ DE CORRELACIÓN MEJORADA ====================
+        with tab3:
+            st.markdown("### 🔗 Matriz de Correlación Interactiva")
+            
+            if len(numeric_cols) >= 2:
+                # Opciones de visualización
+                corr_method = st.radio("Método de correlación:", 
+                                      ["Pearson (lineal)", "Spearman (rangos)"], 
+                                      horizontal=True)
+                method = 'pearson' if 'Pearson' in corr_method else 'spearman'
+                
+                # Calcular matriz
+                corr_matrix = df[numeric_cols].corr(method=method)
+                
+                # Heatmap interactivo con Plotly
+                fig_heatmap = px.imshow(corr_matrix, 
+                                       text_auto='.2f',
+                                       aspect='auto',
+                                       color_continuous_scale='RdBu_r',
+                                       title=f"Matriz de Correlación ({method.title()})",
+                                       labels={'x': 'Variable', 'y': 'Variable', 'color': 'Correlación'})
+                fig_heatmap.update_layout(height=600, xaxis_tickangle=-45)
+                st.plotly_chart(fig_heatmap, use_container_width=True)
+                
+                # Top correlaciones positivas y negativas
+                st.markdown("#### 🏆 Correlaciones Más Fuertes")
+                
+                # Extraer pares únicos
+                corr_pairs = []
+                for i in range(len(corr_matrix.columns)):
+                    for j in range(i+1, len(corr_matrix.columns)):
+                        corr_pairs.append({
+                            'Variable 1': corr_matrix.columns[i],
+                            'Variable 2': corr_matrix.columns[j],
+                            'Correlación': corr_matrix.iloc[i, j]
+                        })
+                
+                corr_df = pd.DataFrame(corr_pairs)
+                corr_df['Abs_Corr'] = corr_df['Correlación'].abs()
+                
+                col_pos, col_neg = st.columns(2)
+                
+                with col_pos:
+                    st.markdown("✅ **Top 5 Correlaciones Positivas**")
+                    top_pos = corr_df.nlargest(5, 'Correlación')[['Variable 1', 'Variable 2', 'Correlación']]
+                    st.dataframe(top_pos.style.format({'Correlación': '{:.3f}'}), use_container_width=True)
+                
+                with col_neg:
+                    st.markdown("❌ **Top 5 Correlaciones Negativas**")
+                    top_neg = corr_df.nsmallest(5, 'Correlación')[['Variable 1', 'Variable 2', 'Correlación']]
+                    st.dataframe(top_neg.style.format({'Correlación': '{:.3f}'}), use_container_width=True)
+                
+                # Gráfico de dispersión para correlación seleccionada
+                st.markdown("#### 🔍 Explorar Relación entre Dos Variables")
+                col_v1, col_v2 = st.columns(2)
+                with col_v1:
+                    var_x = st.selectbox("Variable X:", numeric_cols, key='corr_x')
+                with col_v2:
+                    var_y = st.selectbox("Variable Y:", numeric_cols, index=1 if len(numeric_cols)>1 else 0, key='corr_y')
+                
+                if var_x and var_y and var_x != var_y:
+                    # Scatter con línea de tendencia
+                    fig_scatter = px.scatter(df, x=var_x, y=var_y, 
+                                            trendline='ols',
+                                            title=f"{var_x} vs {var_y}",
+                                            color='Abandono' if 'Abandono' in df.columns else None,
+                                            color_discrete_map={0: '#00c853', 1: '#d32f2f'} if 'Abandono' in df.columns else None)
+                    
+                    # Calcular correlación específica
+                    r = df[var_x].corr(df[var_y], method=method)
+                    fig_scatter.update_layout(subtitle_text=f"r = {r:.3f}")
+                    st.plotly_chart(fig_scatter, use_container_width=True)
+            else:
+                st.info("ℹ️ Se necesitan al menos 2 variables numéricas para calcular correlaciones")
+        
+        # ==================== ANÁLISIS ADICIONAL ====================
+        st.markdown("---")
+        st.subheader("🔎 Análisis Adicional")
+        
+        exp_outliers, exp_missing = st.columns(2)
+        
+        with exp_outliers:
+            with st.expander("🚨 Detección de Outliers (Método IQR)"):
+                if numeric_cols:
+                    outliers_summary = []
+                    for col in numeric_cols[:10]:  # Limitar a 10 para rendimiento
+                        Q1 = df[col].quantile(0.25)
+                        Q3 = df[col].quantile(0.75)
+                        IQR = Q3 - Q1
+                        lower = Q1 - 1.5 * IQR
+                        upper = Q3 + 1.5 * IQR
+                        n_outliers = ((df[col] < lower) | (df[col] > upper)).sum()
+                        if n_outliers > 0:
+                            outliers_summary.append({
+                                'Variable': col,
+                                'Outliers': int(n_outliers),
+                                '%': f"{n_outliers/len(df)*100:.1f}%"
+                            })
+                    
+                    if outliers_summary:
+                        st.dataframe(pd.DataFrame(outliers_summary), use_container_width=True)
+                    else:
+                        st.success("✅ No se detectaron outliers significativos")
+        
+        with exp_missing:
+            with st.expander("❌ Análisis de Valores Faltantes"):
+                missing = df.isnull().sum()
+                missing = missing[missing > 0]
+                
+                if len(missing) > 0:
+                    fig_missing = px.bar(x=missing.index, y=missing.values,
+                                        title="Valores Faltantes por Variable",
+                                        labels={'x': 'Variable', 'y': 'Cantidad'})
+                    st.plotly_chart(fig_missing, use_container_width=True)
+                else:
+                    st.success("✅ Dataset completo: sin valores faltantes")
 
 elif page == "🤖 Entrenamiento":
     st.title("🤖 Entrenamiento de Modelos")
