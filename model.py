@@ -1,58 +1,72 @@
 """
-Model training and evaluation module with safe feature importance
+Model training and evaluation module
 """
 import numpy as np
 import pandas as pd
-from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.svm import SVC
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score
-from sklearn.inspection import permutation_importance
+from sklearn.metrics import (accuracy_score, precision_score, recall_score,
+                             f1_score, roc_auc_score, confusion_matrix, classification_report)
 import warnings
 warnings.filterwarnings('ignore')
 
 class DropoutPredictor:
-    def __init__(self, model_type='random_forest'):
+    def __init__(self, model_type='random_forest', random_state=42):
         self.model_type = model_type
-        self.model = None
-        
+        self.random_state = random_state
+        self.model = self._create_model()
+        self.metrics = {}
+        self.feature_importance = None
+        self.feature_names = None
+
+    def _create_model(self):
         models = {
-            'random_forest': RandomForestClassifier(n_estimators=100, random_state=42, class_weight='balanced'),
-            'gradient_boost': GradientBoostingClassifier(n_estimators=100, random_state=42),
-            'logistic': LogisticRegression(random_state=42, max_iter=1000, class_weight='balanced'),
-            'svm': SVC(probability=True, random_state=42, class_weight='balanced')
+            'logistic_regression': LogisticRegression(random_state=self.random_state, max_iter=1000),
+            'random_forest': RandomForestClassifier(n_estimators=100, random_state=self.random_state),
+            'gradient_boosting': GradientBoostingClassifier(n_estimators=100, random_state=self.random_state),
+            'svm': SVC(kernel='rbf', probability=True, random_state=self.random_state)
         }
-        self.model = models.get(model_type)
-        
+        return models.get(self.model_type, RandomForestClassifier(random_state=self.random_state))
+
     def train(self, X_train, y_train):
         self.model.fit(X_train, y_train)
-        return self
-    
+        self.feature_names = getattr(X_train, 'columns', None)
+        if hasattr(self.model, 'feature_importances_'):
+            self.feature_importance = self.model.feature_importances_
+
+    def predict(self, X):
+        return self.model.predict(X)
+
+    def predict_proba(self, X):
+        return self.model.predict_proba(X)
+
     def evaluate(self, X_test, y_test):
-        y_pred = self.model.predict(X_test)
-        y_proba = self.model.predict_proba(X_test)[:, 1] if hasattr(self.model, 'predict_proba') else None
-        return {
+        y_pred = self.predict(X_test)
+        y_pred_proba = self.predict_proba(X_test)[:, 1]
+        self.metrics = {
             'accuracy': accuracy_score(y_test, y_pred),
             'precision': precision_score(y_test, y_pred, zero_division=0),
             'recall': recall_score(y_test, y_pred, zero_division=0),
             'f1': f1_score(y_test, y_pred, zero_division=0),
-            'roc_auc': roc_auc_score(y_test, y_proba) if y_proba is not None else 0.5
+            'roc_auc': roc_auc_score(y_test, y_pred_proba),
+            'confusion_matrix': confusion_matrix(y_test, y_pred),
+            'classification_report': classification_report(y_test, y_pred)
         }
-    
-    def get_feature_importance(self, X_test, y_test, feature_names, top_n=10):
-        """Importancia segura para árboles, lineales y SVM"""
-        try:
-            if hasattr(self.model, 'feature_importances_'):
-                importances = self.model.feature_importances_
-            elif hasattr(self.model, 'coef_'):
-                importances = np.abs(self.model.coef_[0])
-            else:
-                # Fallback para SVM: Permutation Importance (robusto y compatible)
-                perm = permutation_importance(self.model, X_test, y_test, 
-                                            n_repeats=10, random_state=42, n_jobs=-1)
-                importances = perm.importances_mean
-                
-            df_imp = pd.DataFrame({'feature': feature_names, 'importance': importances})
-            return df_imp.sort_values('importance', ascending=False).head(top_n)
-        except Exception:
-            return pd.DataFrame({'feature': feature_names[:top_n], 'importance': [0]*top_n})
+        return self.metrics
+
+    def get_feature_importance(self, feature_names=None, top_n=10):
+        if self.feature_importance is None:
+            return None
+        names = feature_names if feature_names is not None else [f'Feature_{i}' for i in range(len(self.feature_importance))]
+        importance_df = pd.DataFrame({'feature': names, 'importance': self.feature_importance})
+        return importance_df.sort_values('importance', ascending=False).head(top_n)
+
+def compare_models(X_train, X_test, y_train, y_test):
+    model_types = ['logistic_regression', 'random_forest', 'gradient_boosting', 'svm']
+    results = {}
+    for mt in model_types:
+        predictor = DropoutPredictor(model_type=mt)
+        predictor.train(X_train, y_train)
+        results[mt] = {'model': predictor, 'metrics': predictor.evaluate(X_test, y_test)}
+    return results
