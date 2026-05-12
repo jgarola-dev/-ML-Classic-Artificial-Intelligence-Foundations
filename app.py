@@ -92,7 +92,7 @@ def get_key_columns(df):
     return [c for c in key_cols if c in df.columns]
 
 # ==================== SIDEBAR ====================
-# ==================== SIDEBAR ====================
+
 st.sidebar.title("📋 Navegación")
 page = st.sidebar.radio("Selecciona una sección:", 
     ["🏠 Inicio", "📊 Análisis EDA", "🤖 Entrenamiento", "🔮 Predicción"])
