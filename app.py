@@ -178,7 +178,7 @@ if page == "🏠 Inicio":
     st.markdown("### 📊 Características del Dataset\nEl modelo utiliza las siguientes características:\n- **Edad:** Edad del estudiante\n- **GPA:** Promedio de calificaciones\n- **Asistencia:** Porcentaje de asistencia\n- **Horas_Estudio:** Horas de estudio semanales\n- **Socioeconomico:** Nivel socioeconómico\n- **Primer_Trimestre:** Desempeño primer trimestre\n- **Motivacion:** Nivel de motivación")
 
 elif page == "📊 Análisis EDA":
-    st.title("📊 Análisis Exploratorio de Datos - UCI Student Dropout")
+    st.title("📊 Análisis Exploratorio de Datos")
     
     if st.session_state.df_mapped is None:
         st.warning("⚠️ Carga el Dataset UCI Oficial primero en la barra lateral")
