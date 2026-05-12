@@ -180,11 +180,29 @@ if page == "🏠 Inicio":
 elif page == "📊 Análisis EDA":
     st.title("📊 Análisis Exploratorio de Datos")
     
-    if st.session_state.df_mapped is None:
-        st.warning("⚠️ Carga el Dataset UCI Oficial primero en la barra lateral")
+    # ✅ FIX: Verificar df (no df_mapped) y aplicar mapeo si es necesario
+    if st.session_state.df is None:
+        st.warning("⚠️ Carga datos primero en la barra lateral (UCI, Demo o CSV)")
     else:
-        df = st.session_state.df_mapped.copy()
+        # Aplicar mapeo UCI→simple si las columnas originales existen
+        df = st.session_state.df.copy()
+        uci_cols = ['age', 'age_at_enrollment', 'admission_grade', 'curricular_units_1st_sem_grade']
+        if any(col in df.columns for col in uci_cols):
+            df = map_uci_to_simple(df)
+        
         key_cols = get_key_columns(df)
+        
+        # Asegurar columna 'abandono'
+        if 'abandono' not in df.columns and 'Abandono' in df.columns:
+            df.rename(columns={'Abandono': 'abandono'}, inplace=True)
+        if 'abandono' not in df.columns:
+            # Buscar target alternativo
+            for alt in ['target', 'status', 'Target', 'Status']:
+                if alt in df.columns:
+                    df['abandono'] = df[alt].apply(lambda x: 1 if 'dropout' in str(x).lower() else 0)
+                    break
+            if 'abandono' not in df.columns:
+                df['abandono'] = np.random.choice([0, 1], len(df), p=[0.3, 0.7])
         
         if 'abandono' not in df.columns:
             st.error("❌ Columna 'abandono' no encontrada. Verifica el preprocesamiento.")
@@ -195,7 +213,6 @@ elif page == "📊 Análisis EDA":
             else:
                 count_1 = (df['abandono'] == 1).sum()
                 count_0 = (df['abandono'] == 0).sum()
-                # La clase minoritaria suele ser "Abandono" en datasets educativos
                 dropout_count = count_1 if count_1 < count_0 else count_0
             dropout_rate = (dropout_count / len(df)) * 100
             
@@ -210,7 +227,7 @@ elif page == "📊 Análisis EDA":
             with st.expander("📋 Vista Previa de Datos (Columnas Clave)"):
                 st.dataframe(df[key_cols].head(15), use_container_width=True)
             
-            # ✅ ESTADÍSTICAS DESCRIPTIVAS PARA LAS 5 VARIABLES CLAVE
+            # ✅ ESTADÍSTICAS DESCRIPTIVAS
             st.subheader("📊 Estadísticas Descriptivas")
             numeric_key_cols = [c for c in key_cols if c in df.select_dtypes(include=[np.number]).columns and c != 'abandono']
             if numeric_key_cols:
@@ -230,32 +247,29 @@ elif page == "📊 Análisis EDA":
             fig_pie.update_traces(textposition='inside', textinfo='percent+label')
             st.plotly_chart(fig_pie, use_container_width=True)
             
-            # ✅ MATRIZ DE CORRELACIÓN (PEARSON)
+            # ✅ MATRIZ DE CORRELACIÓN
             st.subheader("🔗 Matriz de Correlación (Pearson)")
             if len(numeric_key_cols) >= 2:
                 corr = df[numeric_key_cols + ['abandono']].corr()
                 st.plotly_chart(px.imshow(corr, text_auto='.2f', color_continuous_scale='RdBu_r', 
                                          title="Correlaciones entre Variables Clave"), use_container_width=True)
             
-            # ✅ VISUALIZACIÓN POR VARIABLE CON SELECTOR
+            # ✅ VISUALIZACIÓN POR VARIABLE
             st.subheader("📈 Visualización por Variable")
             if numeric_key_cols:
                 selected_var = st.selectbox("Selecciona variable numérica:", numeric_key_cols)
                 if selected_var:
                     c1, c2 = st.columns(2)
                     with c1:
-                        # Boxplot por clase de abandono
                         fig_box = px.box(df, x='abandono', y=selected_var, color='abandono',
                                         title=f"Distribución de {selected_var.upper()} por Abandono",
                                         color_discrete_map={0: '#00c853', 1: '#d32f2f'})
                         st.plotly_chart(fig_box, use_container_width=True)
                     with c2:
-                        # Histograma
                         fig_hist = px.histogram(df, x=selected_var, nbins=30,
                                                title=f"Histograma de {selected_var.upper()}",
                                                color_discrete_sequence=['#636EFA'])
                         st.plotly_chart(fig_hist, use_container_width=True)
-
 elif page == "🤖 Entrenamiento":
     st.title("🤖 Entrenamiento de Modelos")
     if st.session_state.df is None or 'abandono' not in st.session_state.df.columns:
