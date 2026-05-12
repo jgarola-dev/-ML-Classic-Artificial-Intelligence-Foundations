@@ -1,136 +1,120 @@
 """
-Streamlit App: ML Clásico - Predicción de Abandono Escolar
-Artificial Intelligence Foundations | Fundació URV | Abril 2026
+Streamlit app for student dropout prediction
 """
 import sys
 import os
-import streamlit as st
 import pandas as pd
 import numpy as np
+import streamlit as st
 import plotly.express as px
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
-import warnings
-warnings.filterwarnings('ignore')
 
-# 🔧 Fix para imports locales en Streamlit Cloud
+# 🔧 Fix para importar módulos locales
 current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
 
-from data_loader import load_dataset, preprocess_dataset
-from data_preprocessing import handle_missing_values, encode_categorical
-from model import DropoutPredictor
+from data_preprocessing import prepare_data, handle_missing_values, encode_categorical
+from model import DropoutPredictor, compare_models
 
-# ==================== CONFIGURACIÓN ====================
+# Page configuration
 st.set_page_config(
-    page_title="🎓 Predicción de Abandono Escolar",
+    page_title="Predicción de Abandono Escolar",
     page_icon="🎓",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
+# Custom CSS
 st.markdown("""
 <style>
-.main-title { color: #1f77b4; text-align: center; font-size: 2.5rem; margin-bottom: 1rem; }
-.metric-box { background: #f8f9fa; padding: 1rem; border-radius: 0.5rem; border: 1px solid #e9ecef; }
+.main-title { color: #1f77b4; text-align: center; font-size: 2.5em; margin-bottom: 10px; }
+.metric-box { background-color: #f0f2f6; padding: 20px; border-radius: 10px; margin: 10px 0; }
+.success { color: #00c853; font-weight: bold; }
+.warning { color: #ff9100; font-weight: bold; }
+.danger { color: #d32f2f; font-weight: bold; }
 </style>
 """, unsafe_allow_html=True)
 
-# ==================== ESTADO DE SESIÓN ====================
-for key in ['df', 'prep', 'results']:
-    if key not in st.session_state: st.session_state[key] = None
+def create_sample_dataset(n_samples=200):
+    """Create a sample dataset for demonstration"""
+    np.random.seed(42)
+    data = {
+        'Edad': np.random.randint(15, 25, n_samples),
+        'GPA': np.random.uniform(1.5, 4.0, n_samples),
+        'Asistencia': np.random.uniform(50, 100, n_samples),
+        'Horas_Estudio': np.random.uniform(0, 10, n_samples),
+        'Socioeconomico': np.random.choice(['Bajo', 'Medio', 'Alto'], n_samples),
+        'Primer_Trimestre': np.random.choice(['Aprobado', 'Reprobado'], n_samples),
+        'Motivacion': np.random.choice(['Baja', 'Media', 'Alta'], n_samples),
+        'Abandono': np.random.choice([0, 1], n_samples, p=[0.7, 0.3])
+    }
+    return pd.DataFrame(data)
+
+# Initialize session state
+if 'df' not in st.session_state: st.session_state.df = None
+if 'results' not in st.session_state: st.session_state.results = None
+if 'feature_names' not in st.session_state: st.session_state.feature_names = None
+if 'scaler' not in st.session_state: st.session_state.scaler = None
+if 'encoders' not in st.session_state: st.session_state.encoders = None
 
 # ==================== SIDEBAR ====================
 st.sidebar.title("📋 Navegación")
-page = st.sidebar.radio("Selecciona una sección:", 
-    ["🏠 Inicio", "📊 Análisis EDA", "🤖 Entrenamiento", "🔮 Predicción"])
+page = st.sidebar.radio("Selecciona una sección:", ["🏠 Inicio", "📊 Análisis EDA", "🤖 Entrenamiento", "🔮 Predicción"])
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 📥 Cargar Datos")
 
-if st.sidebar.button("🌐 Cargar Dataset UCI Oficial"):
-    with st.spinner("Descargando y procesando..."):
-        try:
-            df_raw, source = load_dataset()
-            df_proc = preprocess_dataset(df_raw)
-            target_col = next((c for c in ['target', 'status', 'Target', 'Status'] if c in df_proc.columns), None)
-            if target_col:
-                df_proc['Abandono'] = df_proc[target_col].apply(lambda x: 1 if 'dropout' in str(x).lower() else 0)
-            else:
-                df_proc['Abandono'] = np.random.choice([0, 1], len(df_proc), p=[0.3, 0.7])
-            st.session_state.df = df_proc
-            st.sidebar.success(f"✅ {source} cargado ({len(df_proc)} registros)")
-        except Exception as e:
-            st.sidebar.error(f"❌ Error UCI: {str(e)}")
-
-if st.sidebar.button("🎲 Usar datos de demostración"):
-    from data_loader import create_sample_dataset
-    df_demo = create_sample_dataset()
-    df_demo['Abandono'] = np.random.choice([0, 1], len(df_demo), p=[0.3, 0.7])
-    st.session_state.df = df_demo
-    st.sidebar.success("✅ Datos de demostración cargados")
-
-uploaded_file = st.sidebar.file_uploader("📁 Subir CSV personalizado (Browse Files)", type=['csv'])
-if uploaded_file:
+uploaded_file = st.sidebar.file_uploader("Sube un archivo CSV", type=['csv'])
+if uploaded_file is not None:
     try:
-        df_up = pd.read_csv(uploaded_file)
-        df_up.columns = df_up.columns.str.strip().str.lower().str.replace(r'[^a-z0-9]', '_', regex=True)
-        if 'abandono' not in df_up.columns:
-            df_up['Abandono'] = np.random.choice([0, 1], len(df_up), p=[0.3, 0.7])
-        st.session_state.df = df_up
-        st.sidebar.success("✅ CSV cargado y normalizado")
+        st.session_state.df = pd.read_csv(uploaded_file)
+        st.sidebar.success("✅ Archivo cargado correctamente")
     except Exception as e:
-        st.sidebar.error(f"❌ Error CSV: {str(e)}")
+        st.sidebar.error(f"❌ Error: {str(e)}")
+else:
+    if st.sidebar.button("Usar datos de demostración"):
+        st.session_state.df = create_sample_dataset()
+        st.sidebar.success("✅ Datos de demostración cargados")
 
 if st.session_state.df is not None:
-    st.sidebar.info(f"📊 Dataset activo: {len(st.session_state.df)} filas × {len(st.session_state.df.columns)} columnas")
+    st.sidebar.markdown(f"📊 Dataset activo: {len(st.session_state.df)} filas")
 
 # ==================== PÁGINAS ====================
+
+# 🏠 INICIO
 if page == "🏠 Inicio":
     st.markdown('<div class="main-title">🎓 Predicción de Abandono Escolar</div>', unsafe_allow_html=True)
     st.markdown("---")
-    
     col1, col2 = st.columns(2)
     with col1:
         st.markdown("""
-        ### 📚 Sobre el Proyecto
-        Este proyecto implementa un modelo de Machine Learning clásico para predecir el riesgo de abandono escolar en estudiantes.
-        
+        ## 📚 Sobre el Proyecto
+        Este proyecto implementa un **modelo de Machine Learning clásico** para predecir el riesgo de abandono escolar.
         ### 🎯 Objetivos
-        - Identificar estudiantes en riesgo de abandono
-        - Proporcionar recomendaciones de intervención
-        - Analizar factores clave del abandono escolar
+        - Identificar estudiantes en riesgo
+        - Proporcionar recomendaciones
+        - Analizar factores clave
+        ### 📋 Formulación
+        - **Tipo:** Supervisado (Clasificación Binaria)
+        - **Target:** Abandono (0/1)
         """)
     with col2:
         st.markdown("""
-        ### 📋 Formulación del Problema
-        - **Tipo de aprendizaje:** Supervisado
-        - **Tarea:** Clasificación binaria
-        - **Variable objetivo:** Abandono (0/1)
-        - **Métrica de éxito:** F1-Score, ROC-AUC
+        ## 🤖 Modelos Implementados
+        1. **Logistic Regression**
+        2. **Random Forest**
+        3. **Gradient Boosting**
+        4. **Support Vector Machine (SVM)**
         """)
-        
-    st.markdown("---")
-    st.markdown("""
-    ### 🤖 Modelos Implementados
-    Se utilizan 4 modelos ML clásicos:
-    1. **Logistic Regression** → Modelo lineal simple y interpretable
-    2. **Random Forest** → Ensemble de árboles de decisión
-    3. **Gradient Boosting** → Boosting secuencial de árboles
-    4. **Support Vector Machine (SVM)** → Máquinas de vectores de soporte
-    """)
     
-    st.markdown("---")
-    m1, m2, m3 = st.columns(3)
-    m1.metric("📊 Modelos", "4", "Clasificadores")
-    m2.metric("📈 Métricas", "6+", "Evaluación")
-    m3.metric("🎓 Categoría", "ML Clásico", "Fundació URV")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("📊 Modelos", "4")
+    c2.metric("📈 Métricas", "6+")
+    c3.metric("🎓 Categoría", "ML Clásico")
     
     st.markdown("---")
     st.markdown("""
     ### 📊 Características del Dataset
-    El modelo utiliza las siguientes características:
     - **Edad:** Edad del estudiante
     - **GPA:** Promedio de calificaciones
     - **Asistencia:** Porcentaje de asistencia
@@ -140,240 +124,209 @@ if page == "🏠 Inicio":
     - **Motivacion:** Nivel de motivación
     """)
 
+# 📊 EDA
 elif page == "📊 Análisis EDA":
     st.title("📊 Análisis Exploratorio de Datos")
     if st.session_state.df is None:
-        st.warning("⚠️ Carga datos primero en la barra lateral")
+        st.warning("⚠️ Por favor, carga datos primero")
     else:
-        df = st.session_state.df.copy()
-        if 'abandono' in df.columns and 'Abandono' not in df.columns:
-            df.rename(columns={'abandono': 'Abandono'}, inplace=True)
-        if 'Abandono' not in df.columns:
-            df['Abandono'] = np.random.choice([0, 1], len(df))
-            
-        target = 'Abandono'
-        
-        # ✅ CÁLCULO CORRECTO DE TASA DE ABANDONO
-        if df[target].dtype == 'object':
-            dropout_count = df[target].astype(str).str.lower().isin(['dropout', 'abandono', '1', 'si']).sum()
-        else:
-            count_1 = (df[target] == 1).sum()
-            count_0 = (df[target] == 0).sum()
-            dropout_count = count_1 if count_1 < count_0 else count_0
-        dropout_rate = (dropout_count / len(df)) * 100
-        
-        k1, k2, k3, k4 = st.columns(4)
-        k1.metric("📊 Total Registros", f"{len(df):,}")
-        k2.metric("📋 Características", len(df.columns))
-        k3.metric("❌ Valores Faltantes", df.isnull().sum().sum())
-        k4.metric("📉 Tasa de Abandono", f"{dropout_rate:.1f}%")
-        
-        with st.expander("📋 Vista Previa de Datos"):
-            st.dataframe(df.head(15), use_container_width=True)
-            
-        st.subheader("📊 Estadísticas Descriptivas")
-        num_cols = df.select_dtypes(include=[np.number]).columns.tolist()
-        if target in num_cols: num_cols.remove(target)
-        st.dataframe(df[num_cols].describe().T.round(3), use_container_width=True)
-        
-        st.subheader("🥧 Distribución de Abandonos (%)")
-        counts = df[target].value_counts()
-        labels_map = {0: "No Abandona (0)", 1: "Abandona (1)"}
-        labels = [labels_map.get(idx, str(idx)) for idx in counts.index]
-        fig_pie = px.pie(values=counts.values, names=labels,
-                        title="Proporción de Clases", hole=0.4, 
-                        color_discrete_map={'No Abandona (0)': '#00c853', 'Abandona (1)': '#d32f2f'})
-        fig_pie.update_traces(textposition='inside', textinfo='percent+label')
-        st.plotly_chart(fig_pie, use_container_width=True)
-        
-        st.subheader("🔗 Matriz de Correlación (Pearson)")
-        if len(num_cols) >= 2:
-            corr = df[num_cols].corr()
-            st.plotly_chart(px.imshow(corr, text_auto='.2f', color_continuous_scale='RdBu_r', title="Correlaciones"), use_container_width=True)
-            
-        st.subheader("📈 Visualización por Variable")
-        if num_cols:
-            sel = st.selectbox("Selecciona variable numérica:", num_cols)
-            fig_box = px.box(df, x=target, y=sel, color=target,
-                            title=f"Distribución de {sel} por Clase",
-                            color_discrete_map={0: '#00c853', 1: '#d32f2f'})
-            st.plotly_chart(fig_box, use_container_width=True)
+        df = st.session_state.df
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Total Registros", len(df))
+        col2.metric("Características", df.shape[1])
+        col3.metric("Valores Faltantes", df.isnull().sum().sum())
+        if 'Abandono' in df.columns:
+            rate = (df['Abandono'].sum() / len(df)) * 100
+            col4.metric("Tasa de Abandono", f"{rate:.1f}%")
 
+        with st.expander("📋 Vista previa de datos"):
+            st.dataframe(df.head(10), use_container_width=True)
+        
+        st.subheader("📊 Estadísticas Descriptivas")
+        st.dataframe(df.describe(), use_container_width=True)
+        
+        st.markdown("---")
+        st.subheader("📈 Visualizaciones")
+        numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+        if 'Abandono' in numeric_cols: numeric_cols.remove('Abandono')
+        
+        if numeric_cols:
+            selected_col = st.selectbox("Selecciona una característica numérica:", numeric_cols)
+            if 'Abandono' in df.columns:
+                fig = px.box(df, x='Abandono', y=selected_col, color='Abandono', title=f"Distribución de {selected_col}")
+                st.plotly_chart(fig, use_container_width=True)
+            
+            st.subheader("🔗 Matriz de Correlación")
+            corr_matrix = df[numeric_cols + ['Abandono']].corr() if 'Abandono' in df.columns else df[numeric_cols].corr()
+            fig_corr = px.imshow(corr_matrix, color_continuous_scale='RdBu', title="Matriz de Correlación")
+            st.plotly_chart(fig_corr, use_container_width=True)
+
+# 🤖 ENTRENAMIENTO
 elif page == "🤖 Entrenamiento":
     st.title("🤖 Entrenamiento de Modelos")
-    if st.session_state.df is None or 'Abandono' not in st.session_state.df.columns:
-        st.warning("⚠️ Carga un dataset con columna `Abandono`")
+    if st.session_state.df is None:
+        st.warning("⚠️ Carga datos primero")
+    elif 'Abandono' not in st.session_state.df.columns:
+        st.error("❌ El dataset debe contener la columna 'Abandono'")
     else:
-        df = st.session_state.df.copy()
-        test_pct = st.slider("📊 Tamaño del conjunto de prueba (%)", 10, 40, 20, step=5)
-        test_size = test_pct / 100.0
-        n_train = int(len(df) * (1-test_size))
-        n_test = len(df) - n_train
-        st.info(f"📋 **División de Datos:**\n✅ Entrenamiento: **{n_train}** registros ({(1-test_size)*100:.0f}%)\n🔍 Prueba: **{n_test}** registros ({test_size*100:.0f}%)")
+        test_size = st.slider("Tamaño del conjunto de prueba (%)", 10, 40, 20) / 100
+        st.info(f"División: Training {(1-test_size)*100:.0f}% | Test {test_size*100:.0f}%")
         
-        if st.button("🚀 Entrenar 4 Modelos", type="primary"):
-            with st.spinner("Preparando datos y entrenando (~15s)..."):
+        if st.button("🚀 Entrenar Modelos", key='train'):
+            with st.spinner("Entrenando..."):
                 try:
-                    df_clean = handle_missing_values(df.copy())
+                    from sklearn.model_selection import train_test_split
+                    from sklearn.preprocessing import StandardScaler
+                    
+                    # Preprocesamiento
+                    df_clean = handle_missing_values(st.session_state.df)
                     X = df_clean.drop(columns=['Abandono'])
                     y = df_clean['Abandono']
-                    X_enc, encoders = encode_categorical(X)
-                    X_train, X_test, y_train, y_test = train_test_split(X_enc, y, test_size=test_size, random_state=42, stratify=y)
                     
+                    # 1. Codificar y GUARDAR encoders
+                    X_encoded, encoders = encode_categorical(X)
+                    
+                    # 2. Dividir datos
+                    X_train, X_test, y_train, y_test = train_test_split(X_encoded, y, test_size=test_size, random_state=42, stratify=y)
+                    
+                    # 3. Escalar y GUARDAR scaler
                     scaler = StandardScaler()
-                    X_train_s = scaler.fit_transform(X_train)
-                    X_test_s = scaler.transform(X_test)
+                    X_train_scaled = scaler.fit_transform(X_train)
+                    X_test_scaled = scaler.transform(X_test)
                     
-                    st.session_state.results = {}
-                    for m_name in ['logistic_regression', 'random_forest', 'gradient_boosting', 'svm']:
-                        clf = DropoutPredictor(model_type=m_name)
-                        clf.train(X_train_s, y_train)
-                        st.session_state.results[m_name] = {
-                            'model': clf,
-                            'metrics': clf.evaluate(X_test_s, y_test),
-                            'importance': clf.get_feature_importance(X_enc.columns.tolist())
-                        }
+                    # Entrenar
+                    results = compare_models(X_train_scaled, X_test_scaled, y_train, y_test)
                     
-                    # 🔑 PIPELINE ROBUSTO: Guardar mapeo seguro de categóricas y estadísticas
-                    cat_mapping = {}
-                    for col in encoders.keys():
-                        le = encoders[col]
-                        cat_mapping[col] = {str(v).strip().lower(): int(le.transform([v])[0]) for v in le.classes_}
-                        
-                    st.session_state.prep = {
-                        'scaler': scaler, 'encoders': encoders, 'feature_names': X_enc.columns.tolist(),
-                        'cat_cols': list(encoders.keys()), 'num_cols': X.select_dtypes('number').columns.tolist(),
-                        'medians': X.select_dtypes('number').median().to_dict(),
-                        'modes': {c: str(X[c].mode()[0]) for c in encoders.keys()},
-                        'cat_mapping': cat_mapping, 'X_test': X_test_s, 'y_test': y_test
-                    }
-                    st.success("✅ Entrenamiento completado. Pipeline guardado para predicción.")
+                    # Guardar todo en sesión para usarlo en Predicción
+                    st.session_state.results = results
+                    st.session_state.feature_names = X_encoded.columns.tolist()
+                    st.session_state.scaler = scaler       # <--- FIX CRÍTICO
+                    st.session_state.encoders = encoders   # <--- FIX CRÍTICO
+                    
+                    st.success("✅ Modelos entrenados y pipeline guardado")
                 except Exception as e:
                     st.error(f"❌ Error: {str(e)}")
-                    
+        
         if st.session_state.results:
             st.subheader("📊 Resultados de Modelos")
             rows = []
             for name, res in st.session_state.results.items():
                 m = res['metrics']
-                rows.append({'Modelo': name.replace('_',' ').title(), 
-                            'Accuracy': f"{m['accuracy']:.3f}", 'Precision': f"{m['precision']:.3f}",
-                            'Recall': f"{m['recall']:.3f}", 'F1-Score': f"{m['f1']:.3f}", 
-                            'ROC-AUC': f"{m.get('roc_auc', 0):.3f}"})
+                rows.append({'Modelo': name.replace('_', ' ').title(), 'Accuracy': m['accuracy'], 'F1-Score': m['f1'], 'ROC-AUC': m.get('roc_auc', 0)})
             st.dataframe(pd.DataFrame(rows), use_container_width=True)
             
-            # 📈 GRÁFICO COMPARATIVO
+            # Gráfico comparativo
             plot_df = pd.DataFrame(rows).melt(id_vars='Modelo', var_name='Métrica', value_name='Valor')
-            plot_df['Valor'] = plot_df['Valor'].astype(float)
             st.plotly_chart(px.bar(plot_df, x='Modelo', y='Valor', color='Métrica', barmode='group', title="Comparación de Rendimiento"), use_container_width=True)
             
+            # Importancia
             st.subheader("🔍 Importancia de Características")
             sel_model = st.selectbox("Selecciona modelo:", list(st.session_state.results.keys()))
-            imp_df = st.session_state.results[sel_model]['importance']
-            if imp_df is not None and not imp_df.empty:
-                imp_df['importance'] = imp_df['importance'].clip(lower=0)
-                fig = px.bar(imp_df, x='importance', y='feature', orientation='h',
-                            title=f"Top Features ({sel_model.replace('_',' ').title()})")
-                fig.update_xaxes(range=[0, None]) # ✅ Fuerza origen en 0
-                st.plotly_chart(fig, use_container_width=True)
+            model_obj = st.session_state.results[sel_model]['model']
+            imp_df = model_obj.get_feature_importance(st.session_state.feature_names, top_n=10)
+            if imp_df is not None:
+                st.plotly_chart(px.bar(imp_df, x='importance', y='feature', orientation='h', title="Top Features"), use_container_width=True)
 
+# 🔮 PREDICCIÓN
 elif page == "🔮 Predicción":
     st.title("🔮 Predicción Individual")
-    if st.session_state.prep is None:
-        st.info("ℹ️ Entrena primero en la sección 🤖 Entrenamiento para guardar escaladores y codificadores.")
+    if not st.session_state.results:
+        st.info("ℹ️ Primero debes entrenar los modelos en la sección de Entrenamiento")
     else:
-        prep = st.session_state.prep
-        st.markdown("📌 *Ajusta los valores para ver cómo cambia la probabilidad en tiempo real*")
+        st.subheader("📋 Ingresa los datos del estudiante")
+        col1, col2 = st.columns(2)
         
-        c1, c2 = st.columns(2)
-        with c1:
-            edad = st.number_input("🎂 Edad", 15, 50, 20)
-            gpa = st.slider("📚 GPA / Nota Promedio (0-5)", 0.0, 5.0, 3.5)
-            assist = st.slider("📅 Asistencia (%)", 0, 100, 85)
-            horas = st.slider("⏱️ Horas de Estudio (semanales)", 0, 30, 10)
-        with c2:
-            motiv = st.selectbox("💡 Motivación", ['Baja', 'Media', 'Alta'])
-            trim = st.selectbox("📋 Desempeño 1er Trimestre", ['Aprobado', 'Reprobado'])
-            socio = st.selectbox("🏠 Nivel Socioeconómico", ['Bajo', 'Medio', 'Alto'])
+        with col1:
+            edad = st.number_input("Edad", min_value=15, max_value=100, value=18)
+            gpa = st.slider("GPA", 0.0, 5.0, 3.0)
+            asistencia = st.slider("Asistencia (%)", 0, 100, 85)
+            horas = st.slider("Horas de Estudio (semanales)", 0, 20, 5)
+        with col2:
+            socioeconomico = st.selectbox("Nivel Socioeconómico", ['Bajo', 'Medio', 'Alto'])
+            primer_trimestre = st.selectbox("Desempeño Primer Trimestre", ['Aprobado', 'Reprobado'])
+            motivacion = st.selectbox("Nivel de Motivación", ['Baja', 'Media', 'Alta'])
             
-        if st.button("🔮 Realizar Predicción", type="primary"):
+        if st.button("🔮 Realizar Predicción"):
             try:
-                # 🔧 CONSTRUCCIÓN ROBUSTA DEL VECTOR DE PREDICCIÓN
-                # Garantiza alineación exacta con feature_names del entrenamiento
-                X_pred = {}
-                for feat in prep['feature_names']:
-                    if feat == 'edad':
-                        X_pred[feat] = edad
-                    elif feat == 'gpa':
-                        X_pred[feat] = gpa
-                    elif feat == 'asistencia':
-                        X_pred[feat] = assist
-                    elif feat == 'horas_estudio':
-                        X_pred[feat] = horas
-                    elif feat == 'motivacion':
-                        X_pred[feat] = motiv
-                    elif feat == 'primer_trimestre':
-                        X_pred[feat] = trim
-                    elif feat == 'socioeconomico':
-                        X_pred[feat] = socio
-                    else:
-                        # Rellenar con estadísticas reales del entrenamiento
-                        if feat in prep.get('num_cols', []):
-                            X_pred[feat] = prep.get('medians', {}).get(feat, 0.0)
-                        elif feat in prep.get('cat_cols', []):
-                            X_pred[feat] = prep.get('modes', {}).get(feat, 'desconocido')
-                        else:
-                            X_pred[feat] = 0.0
-
-                df_pred = pd.DataFrame([X_pred])
-
-                # Codificación SEGURA usando mapeo precomputado
-                for col in prep.get('cat_cols', []):
-                    if col in df_pred.columns and col in prep.get('cat_mapping', {}):
-                        raw_val = str(df_pred[col].values[0]).strip().lower()
-                        df_pred[col] = prep['cat_mapping'][col].get(raw_val, 0)
-
-                # Alinear EXACTAMENTE y escalar
-                df_pred = df_pred.reindex(columns=prep['feature_names'])
-                df_pred = df_pred.fillna(0) # Fallback de seguridad
-                X_scaled = prep['scaler'].transform(df_pred)
+                # 1. Crear DataFrame con los inputs
+                input_data = pd.DataFrame({
+                    'Edad': [edad],
+                    'GPA': [gpa],
+                    'Asistencia': [asistencia],
+                    'Horas_Estudio': [horas],
+                    'Socioeconomico': [socioeconomico],
+                    'Primer_Trimestre': [primer_trimestre],
+                    'Motivacion': [motivacion]
+                })
                 
-                # 📊 RESULTADOS
-                st.markdown("---")
-                st.subheader("🎯 Resultados de Probabilidad de Abandono")
-                cols = st.columns(4)
-                for i, (name, res) in enumerate(st.session_state.results.items()):
-                    with cols[i]:
-                        model = res['model'].model
-                        # Extraer probabilidad de la clase 1 (Abandono) de forma segura
-                        proba = model.predict_proba(X_scaled)[0]
-                        dropout_idx = np.where(model.classes_ == 1)[0][0] if 1 in model.classes_ else 1
-                        prob_dropout = proba[dropout_idx]
-                        
-                        # Umbrales realistas para sensibilidad
-                        if prob_dropout > 0.60:
-                            risk, color = "🔴 ALTO RIESGO", "inverse"
-                        elif prob_dropout > 0.35:
-                            risk, color = "🟡 RIESGO MODERADO", "normal"
-                        else:
-                            risk, color = "🟢 BAJO RIESGO", "normal"
-                            
-                        st.metric(name.replace('_',' ').title(), risk, delta=f"Prob: {prob_dropout:.1%}", delta_color=color)
-                        
-                # 🔍 Debug transparente para verificar sensibilidad
+                # 2. Codificar usando los ENCODERS GUARDADOS del entrenamiento
+                processed_data = input_data.copy()
+                if 'encoders' in st.session_state:
+                    for col, le in st.session_state.encoders.items():
+                        if col in processed_data.columns:
+                            val = processed_data[col].values[0]
+                            if val in le.classes_:
+                                processed_data[col] = le.transform([val])[0]
+                            else:
+                                st.warning(f"Valor '{val}' no visto en {col}. Usando valor por defecto.")
+                                processed_data[col] = le.transform([le.classes_[0]])[0]
+                
+                # 3. Asegurar que las columnas estén en el orden correcto
+                if 'feature_names' in st.session_state:
+                    # Rellenar columnas faltantes si las hubiera (por seguridad)
+                    for col in st.session_state.feature_names:
+                        if col not in processed_data.columns:
+                            processed_data[col] = 0
+                    # Reordenar
+                    processed_data = processed_data[st.session_state.feature_names]
+                
+                # 4. Escalar usando el SCALER GUARDADO del entrenamiento (NO fit_transform)
+                if 'scaler' in st.session_state:
+                    X_sample = st.session_state.scaler.transform(processed_data)
+                else:
+                    st.error("Error: No se encontró el escalador. Entrena los modelos primero.")
+                    st.stop()
+
+                # Expander para ver los datos procesados (Debug)
                 with st.expander("🔍 Ver datos procesados enviados al modelo"):
-                    st.dataframe(df_pred.T.rename(columns={0: 'Valor'}), use_container_width=True)
-                    st.info(f"📐 Escalado: StandardScaler del entrenamiento | Clases modelo: {list(res['model'].model.classes_)}")
-                    
+                    st.write("Valores Numéricos Escalados (Media ~0, Varianza ~1):")
+                    st.dataframe(pd.DataFrame(X_sample, columns=st.session_state.feature_names).T, use_container_width=True)
+                    st.info("Si los valores son correctos, el modelo responderá adecuadamente a la sensibilidad.")
+
+                # 5. Predecir
+                st.markdown("---")
+                st.subheader("🎯 Resultados de Predicción")
+                cols = st.columns(4)
+                
+                for idx, (model_name, result) in enumerate(st.session_state.results.items()):
+                    with cols[idx]:
+                        model_obj = result['model']
+                        pred = model_obj.predict(X_sample)[0]
+                        
+                        prob = 0.0
+                        if hasattr(model_obj.model, 'predict_proba'):
+                            prob = model_obj.model.predict_proba(X_sample)[0][1]
+                        
+                        # Lógica de recomendación mejorada
+                        if prob > 0.60:
+                            rec = f"🔴 ALTO RIESGO ({prob:.1%})"
+                        elif prob > 0.40:
+                            rec = f"🟡 RIESGO MEDIO ({prob:.1%})"
+                        else:
+                            rec = f"🟢 BAJO RIESGO ({prob:.1%})"
+                            
+                        st.markdown(f"**{model_name.replace('_', ' ').title()}**")
+                        st.success(rec)
+            
             except Exception as e:
                 st.error(f"❌ Error en predicción: {str(e)}")
-                st.exception(e)
+                st.exception(e) # Muestra el error detallado para depurar
 
-# ==================== FOOTER ====================
+# Footer
 st.markdown("---")
 st.markdown("""
-<div style='text-align: center; color: #6c757d; font-size: 0.85rem;'>
-    <p>🎓 ML Clásico - Predicción de Abandono Escolar | Artificial Intelligence Foundations | Fundació URV</p>
-    <p>Desarrollado con Streamlit, Scikit-learn y Plotly | Abril 2026</p>
+<div style="text-align: center; color: #888; font-size: 0.9em;">
+ <p>🎓 Predicción de Abandono Escolar | ML Clásico | Artificial Intelligence Foundations (Fundació URV)</p>
+ <p>Desarrollado con Streamlit, Scikit-learn y Plotly</p>
 </div>
 """, unsafe_allow_html=True)
