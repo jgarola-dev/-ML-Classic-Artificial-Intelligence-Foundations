@@ -23,7 +23,7 @@ def load_uci_dataset():
         return None
 
 def create_sample_dataset(n_samples=2000):
-    """Dataset demo amb correlacions reals"""
+    """Dataset demo amb correlacions reals i columna Abandono garantida"""
     np.random.seed(42)
     return pd.DataFrame({
         'edat': np.random.randint(17, 35, n_samples),
@@ -33,11 +33,11 @@ def create_sample_dataset(n_samples=2000):
         'motivacio': np.random.choice(['Baixa', 'Mitjana', 'Alta'], n_samples, p=[0.3, 0.5, 0.2]),
         'primer_trimestre': np.random.choice(['Aprovat', 'Reprovat'], n_samples, p=[0.65, 0.35]),
         'nivell_socioeconomic': np.random.choice(['Baix', 'Mitjà', 'Alt'], n_samples, p=[0.4, 0.4, 0.2]),
-        'abandono': (np.random.uniform(0, 1, n_samples) > 0.7).astype(int)
+        'Abandono': (np.random.uniform(0, 1, n_samples) > 0.7).astype(int)
     })
 
 def preprocess_dataset(df):
-    """Neteja suau preservant totes les columnes i crea 'abandono' explícitament"""
+    """Neteja suau, normalitza noms i CREA explícitament la columna 'Abandono'"""
     # 1. Netejar noms de columnes a snake_case
     df.columns = df.columns.str.strip().str.lower().str.replace(r'[^a-z0-9]', '_', regex=True)
     
@@ -49,17 +49,24 @@ def preprocess_dataset(df):
             mode_val = df[col].mode()
             df[col] = df[col].fillna(mode_val[0] if not mode_val.empty else 'desconegut')
             
-    # 3. Crear target 'abandono' binari (1=Dropout, 0=Graduate/Enrolled)
-    target_col = None
-    for c in ['target', 'status']:
+    # 3. 🔑 CREAR TARGET BINARI 'Abandono' EXPLÍCITAMENT
+    target_candidates = ['target', 'status', 'estado', 'outcome']
+    target_found = None
+    for c in target_candidates:
         if c in df.columns:
-            target_col = c
+            target_found = c
             break
             
-    if target_col:
-        df['abandono'] = df[target_col].apply(lambda x: 1 if 'dropout' in str(x).lower() else 0)
+    if target_found:
+        # Map: 1 si és Dropout/abandono, 0 en qualsevol altre cas (Graduate/Enrolled)
+        df['Abandono'] = df[target_found].apply(
+            lambda x: 1 if 'dropout' in str(x).lower() or 'abandono' in str(x).lower() else 0
+        )
+        # Opcional: eliminar la columna original per evitar redundància
+        df = df.drop(columns=[target_found])
     else:
-        df['abandono'] = np.random.choice([0, 1], len(df), p=[0.3, 0.7])
+        # Fallback segur
+        df['Abandono'] = np.random.choice([0, 1], len(df), p=[0.3, 0.7])
         
     return df
 
