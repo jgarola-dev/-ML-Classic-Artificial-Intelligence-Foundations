@@ -41,11 +41,11 @@ def preprocess_dataset(df):
     # 1. Netejar noms de columnes a snake_case
     df.columns = df.columns.str.strip().str.lower().str.replace(r'[^a-z0-9]', '_', regex=True)
     
-    # 2. Imputació segura sense eliminar columnes
+    # 2. Imputació segura sense eliminar columnes (evita .dtype directament)
     for col in df.columns:
-        if df[col].dtype in ['float64', 'int64']:
+        if pd.api.types.is_numeric_dtype(df[col]):
             df[col] = df[col].fillna(df[col].median())
-        elif df[col].dtype == 'object':
+        else:
             mode_val = df[col].mode()
             df[col] = df[col].fillna(mode_val[0] if not mode_val.empty else 'desconegut')
             
@@ -58,14 +58,12 @@ def preprocess_dataset(df):
             break
             
     if target_found:
-        # Map: 1 si és Dropout/abandono, 0 en qualsevol altre cas (Graduate/Enrolled)
-        df['Abandono'] = df[target_found].apply(
-            lambda x: 1 if 'dropout' in str(x).lower() or 'abandono' in str(x).lower() else 0
+        # Mapeig segur: 1 si és Dropout/abandono, 0 en qualsevol altre cas
+        df['Abandono'] = df[target_found].astype(str).str.lower().apply(
+            lambda x: 1 if 'dropout' in x or 'abandono' in x else 0
         )
-        # Opcional: eliminar la columna original per evitar redundància
-        df = df.drop(columns=[target_found])
     else:
-        # Fallback segur
+        # Fallback segur si no es troba cap target
         df['Abandono'] = np.random.choice([0, 1], len(df), p=[0.3, 0.7])
         
     return df
