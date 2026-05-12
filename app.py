@@ -90,7 +90,6 @@ if st.session_state.df is not None:
 if page == "🏠 Inicio":
     st.title("🎓 Predicción de Abandono Escolar")
     st.markdown("---")
-    
     col1, col2 = st.columns(2)
     with col1:
         st.markdown("""
@@ -117,13 +116,11 @@ if page == "🏠 Inicio":
         3. **Gradient Boosting** → Boosting secuencial de árboles
         4. **Support Vector Machine (SVM)** → Máquinas de vectores de soporte
         """)
-        
     st.markdown("---")
     m1, m2, m3 = st.columns(3)
     m1.metric("📊 Modelos", "4", "Clasificadores")
     m2.metric("📈 Métricas", "6+", "Evaluación")
     m3.metric("🎓 Categoría", "ML Clásico", "Fundació URV")
-    
     st.markdown("---")
     st.markdown("""
     ### 📊 Características del Dataset
@@ -155,7 +152,6 @@ elif page == "📊 Análisis EDA":
         k3.metric("❌ Valores Faltantes", df.isnull().sum().sum())
         k4.metric("📉 Tasa de Abandono", f"{df[target].mean()*100:.1f}%")
         
-        # ✅ ACORDEÓN VISTA PREVIA
         with st.expander("📋 Vista Previa de Datos"):
             st.dataframe(df.head(15), use_container_width=True)
             
@@ -211,20 +207,23 @@ elif page == "🤖 Entrenamiento":
                     
                     st.session_state.results = compare_models(X_train_s, X_test_s, y_train, y_test, X_enc.columns.tolist())
                     
-                    # Mapeo robusto de categóricas para predicción
+                    # 🔑 PIPELINE ROBUSTO: Guardar mapeo seguro de categóricas y estadísticas
                     cat_mapping = {}
                     for col in encoders.keys():
                         le = encoders[col]
-                        cat_mapping[col] = {str(v).strip().lower(): le.transform([v])[0] for v in le.classes_}
+                        cat_mapping[col] = {str(v).strip().lower(): int(le.transform([v])[0]) for v in le.classes_}
                         
                     st.session_state.prep = {
-                        'scaler': scaler, 'encoders': encoders, 'feature_names': X_enc.columns.tolist(),
-                        'cat_cols': list(encoders.keys()), 'num_cols': X.select_dtypes('number').columns.tolist(),
+                        'scaler': scaler, 
+                        'encoders': encoders, 
+                        'feature_names': X_enc.columns.tolist(),
+                        'cat_cols': list(encoders.keys()),
+                        'num_cols': X.select_dtypes('number').columns.tolist(),
                         'medians': X.select_dtypes('number').median().to_dict(),
-                        'modes': {c: X[c].mode()[0] for c in encoders.keys()},
+                        'modes': {c: str(X[c].mode()[0]) for c in encoders.keys()},
                         'cat_mapping': cat_mapping
                     }
-                    st.success("✅ Entrenamiento completado. Pipeline guardado.")
+                    st.success("✅ Entrenamiento completado. Pipeline guardado para predicción.")
                 except Exception as e:
                     st.error(f"❌ Error: {str(e)}")
                     
@@ -239,10 +238,10 @@ elif page == "🤖 Entrenamiento":
                             'ROC-AUC': f"{m.get('roc_auc', 0):.3f}"})
             st.dataframe(pd.DataFrame(rows), use_container_width=True)
             
-            # ✅ GRÁFICO COMPARATIVO EN COLUMNAS
+            st.subheader("📈 Comparación de Rendimiento")
             plot_df = pd.DataFrame(rows).melt(id_vars='Modelo', var_name='Métrica', value_name='Valor')
             plot_df['Valor'] = plot_df['Valor'].astype(float)
-            st.plotly_chart(px.bar(plot_df, x='Modelo', y='Valor', color='Métrica', barmode='group', title="Comparación de Rendimiento"), use_container_width=True)
+            st.plotly_chart(px.bar(plot_df, x='Modelo', y='Valor', color='Métrica', barmode='group', title="Accuracy vs F1 vs ROC-AUC"), use_container_width=True)
             
             st.subheader("🔍 Importancia de Características")
             sel_model = st.selectbox("Selecciona modelo:", list(st.session_state.results.keys()))
@@ -275,26 +274,35 @@ elif page == "🔮 Predicción":
             
         if st.button("🔮 Realizar Predicción", type="primary"):
             try:
+                # 1. Input inicial
                 inp = {'edad': edad, 'gpa': gpa, 'asistencia': assist, 'horas_estudio': horas,
                        'motivacion': motiv, 'primer_trimestre': trim, 'socioeconomico': socio}
-                
                 df_pred = pd.DataFrame([inp])
                 
-                # Rellenar features UCI faltantes
+                # 2. Rellenar features UCI faltantes con estadísticas REALES del entrenamiento
                 for feat in prep['feature_names']:
                     if feat not in df_pred.columns:
-                        df_pred[feat] = prep['medians'].get(feat, 0) if feat in prep['num_cols'] else prep['modes'].get(feat, 'desconocido')
-                        
-                # Codificación SEGURA usando mapeo guardado (evita fallos de LabelEncoder)
+                        if feat in prep['num_cols']:
+                            df_pred[feat] = prep['medians'].get(feat, 0.0)
+                        elif feat in prep['cat_cols']:
+                            df_pred[feat] = prep['modes'].get(feat, 'desconocido')
+                            
+                # 3. Codificación SEGURA usando mapeo precomputado (evita fallos de LabelEncoder)
                 for col in prep['cat_cols']:
                     if col in df_pred.columns and col in prep['cat_mapping']:
                         raw_val = str(df_pred[col].values[0]).strip().lower()
                         df_pred[col] = prep['cat_mapping'][col].get(raw_val, 0)
                         
-                # Alinear EXACTAMENTE con el orden de entrenamiento
+                # 4. Alinear EXACTAMENTE columnas y escalar CON EL MISMO SCALER
                 df_pred = df_pred.reindex(columns=prep['feature_names'])
                 X_scaled = prep['scaler'].transform(df_pred)
                 
+                # 🔍 Depuración transparente (opcional)
+                with st.expander("🔍 Ver datos procesados enviados al modelo"):
+                    st.dataframe(df_pred.T.rename(columns={0: 'Valor'}), use_container_width=True)
+                    st.info("📐 Escalado aplicado: `StandardScaler.transform()` del entrenamiento")
+                
+                # 5. Predecir probabilidades
                 st.markdown("---")
                 st.subheader("🎯 Resultados de Probabilidad")
                 cols = st.columns(4)
