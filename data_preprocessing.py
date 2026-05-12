@@ -1,15 +1,19 @@
 """
-Data preprocessing module
+Data preprocessing module for student dropout prediction
 """
 import pandas as pd
 import numpy as np
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.model_selection import train_test_split
 
-def handle_missing_values(df, strategy='median'):
-    num_cols = df.select_dtypes(include=[np.number]).columns
-    if strategy == 'median': df[num_cols] = df[num_cols].fillna(df[num_cols].median())
-    elif strategy == 'mean': df[num_cols] = df[num_cols].fillna(df[num_cols].mean())
+def handle_missing_values(df, strategy='mean'):
+    if strategy == 'drop': return df.dropna()
+    elif strategy == 'mean':
+        numeric_cols = df.select_dtypes(include=[np.number]).columns
+        df[numeric_cols] = df[numeric_cols].fillna(df[numeric_cols].mean())
+    elif strategy == 'median':
+        numeric_cols = df.select_dtypes(include=[np.number]).columns
+        df[numeric_cols] = df[numeric_cols].fillna(df[numeric_cols].median())
     return df
 
 def encode_categorical(df, categorical_cols=None):
