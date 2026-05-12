@@ -88,17 +88,35 @@ if st.session_state.df is not None:
 
 # ==================== PÁGINAS ====================
 if page == "🏠 Inicio":
-    st.markdown("### 📚 Sobre el Proyecto")
-    st.markdown("Este proyecto implementa un modelo de Machine Learning clásico para predecir el riesgo de abandono escolar en estudiantes.")
+    st.markdown('<div class="main-title">🎓 Predicción de Abandono Escolar</div>', unsafe_allow_html=True)
+    st.markdown("---")
     
-    st.markdown("### 🎯 Objetivos")
-    st.markdown("- Identificar estudiantes en riesgo de abandono\n- Proporcionar recomendaciones de intervención\n- Analizar factores clave del abandono escolar")
+    st.markdown("""
+    ### 📚 Sobre el Proyecto
+    Este proyecto implementa un modelo de Machine Learning clásico para predecir el riesgo de abandono escolar en estudiantes.
     
-    st.markdown("### 📋 Formulación del Problema")
-    st.markdown("- **Tipo de aprendizaje:** Supervisado\n- **Tarea:** Clasificación binaria\n- **Variable objetivo:** Abandono (0/1)\n- **Métrica de éxito:** F1-Score, ROC-AUC")
+    ### 🎯 Objetivos
+    - Identificar estudiantes en riesgo de abandono
+    - Proporcionar recomendaciones de intervención
+    - Analizar factores clave del abandono escolar
+    """)
     
-    st.markdown("### 🤖 Modelos Implementados")
-    st.markdown("Se utilizan 4 modelos ML clásicos:\n1. **Logistic Regression** → Modelo lineal simple y interpretable\n2. **Random Forest** → Ensemble de árboles de decisión\n3. **Gradient Boosting** → Boosting secuencial de árboles\n4. **Support Vector Machine (SVM)** → Máquinas de vectores de soporte")
+    st.markdown("""
+    ### 📋 Formulación del Problema
+    - **Tipo de aprendizaje:** Supervisado
+    - **Tarea:** Clasificación binaria
+    - **Variable objetivo:** Abandono (0/1)
+    - **Métrica de éxito:** F1-Score, ROC-AUC
+    """)
+    
+    st.markdown("""
+    ### 🤖 Modelos Implementados
+    Se utilizan 4 modelos ML clásicos:
+    1. **Logistic Regression** → Modelo lineal simple y interpretable
+    2. **Random Forest** → Ensemble de árboles de decisión
+    3. **Gradient Boosting** → Boosting secuencial de árboles
+    4. **Support Vector Machine (SVM)** → Máquinas de vectores de soporte
+    """)
     
     st.markdown("---")
     m1, m2, m3 = st.columns(3)
@@ -107,7 +125,17 @@ if page == "🏠 Inicio":
     m3.metric("🎓 Categoría", "ML Clásico", "Fundació URV")
     
     st.markdown("---")
-    st.markdown("### 📊 Características del Dataset\nEl modelo utiliza las siguientes características:\n- **Edad:** Edad del estudiante\n- **GPA:** Promedio de calificaciones\n- **Asistencia:** Porcentaje de asistencia\n- **Horas_Estudio:** Horas de estudio semanales\n- **Socioeconomico:** Nivel socioeconómico\n- **Primer_Trimestre:** Desempeño primer trimestre\n- **Motivacion:** Nivel de motivación")
+    st.markdown("""
+    ### 📊 Características del Dataset
+    El modelo utiliza las siguientes características:
+    - **Edad:** Edad del estudiante
+    - **GPA:** Promedio de calificaciones
+    - **Asistencia:** Porcentaje de asistencia
+    - **Horas_Estudio:** Horas de estudio semanales
+    - **Socioeconomico:** Nivel socioeconómico
+    - **Primer_Trimestre:** Desempeño primer trimestre
+    - **Motivacion:** Nivel de motivación
+    """)
 
 elif page == "📊 Análisis EDA":
     st.title("📊 Análisis Exploratorio de Datos")
@@ -122,16 +150,14 @@ elif page == "📊 Análisis EDA":
             
         target = 'Abandono'
         
-        # ✅ CÁLCULO CORRECTO DE TASA DE ABANDONO
+        # ✅ FIX: Cálculo robusto de tasa de abandono (detecta automáticamente si 0 o 1 es abandono)
         if df[target].dtype == 'object':
             dropout_count = df[target].astype(str).str.lower().isin(['dropout', 'abandono', '1', 'si']).sum()
         else:
-            unique = df[target].unique()
-            if 0 in unique and 1 in unique:
-                # Si hay más 0s que 1s, probablemente 0=Abandono (invertido)
-                dropout_count = (df[target] == 0).sum() if (df[target]==0).sum() > (df[target]==1).sum() else (df[target] == 1).sum()
-            else:
-                dropout_count = (df[target] == 1).sum()
+            count_1 = (df[target] == 1).sum()
+            count_0 = (df[target] == 0).sum()
+            # Por convención en datasets educativos, la clase minoritaria suele ser "Abandono"
+            dropout_count = count_1 if count_1 < count_0 else count_0
         dropout_rate = (dropout_count / len(df)) * 100
         
         k1, k2, k3, k4 = st.columns(4)
@@ -140,6 +166,7 @@ elif page == "📊 Análisis EDA":
         k3.metric("❌ Valores Faltantes", df.isnull().sum().sum())
         k4.metric("📉 Tasa de Abandono", f"{dropout_rate:.1f}%")
         
+        # ✅ ACORDEÓN VISTA PREVIA
         with st.expander("📋 Vista Previa de Datos"):
             st.dataframe(df.head(15), use_container_width=True)
             
@@ -150,8 +177,11 @@ elif page == "📊 Análisis EDA":
         
         st.subheader("🥧 Distribución de Abandonos (%)")
         counts = df[target].value_counts()
-        fig_pie = px.pie(values=counts.values, names=['No Abandona (0)', 'Abandona (1)'],
-                        title="Proporción de Clases", hole=0.4, color_discrete_map={0: '#00c853', 1: '#d32f2f'})
+        labels_map = {0: "No Abandona (0)", 1: "Abandona (1)"}
+        labels = [labels_map.get(idx, str(idx)) for idx in counts.index]
+        fig_pie = px.pie(values=counts.values, names=labels,
+                        title="Proporción de Clases", hole=0.4, 
+                        color_discrete_map={'No Abandona (0)': '#00c853', 'Abandona (1)': '#d32f2f'})
         fig_pie.update_traces(textposition='inside', textinfo='percent+label')
         st.plotly_chart(fig_pie, use_container_width=True)
         
@@ -203,7 +233,7 @@ elif page == "🤖 Entrenamiento":
                             'importance': clf.get_feature_importance(X_enc.columns.tolist())
                         }
                     
-                    # 🔑 PIPELINE ROBUSTO: Guardar mapeo seguro de categóricas
+                    # 🔑 PIPELINE ROBUSTO: Guardar mapeo seguro de categóricas y estadísticas
                     cat_mapping = {}
                     for col in encoders.keys():
                         le = encoders[col]
@@ -269,17 +299,21 @@ elif page == "🔮 Predicción":
             try:
                 inp = {'edad': edad, 'gpa': gpa, 'asistencia': assist, 'horas_estudio': horas,
                        'motivacion': motiv, 'primer_trimestre': trim, 'socioeconomico': socio}
+                
                 df_pred = pd.DataFrame([inp])
                 
+                # Rellenar features faltantes con estadísticas REALES del entrenamiento
                 for feat in prep['feature_names']:
                     if feat not in df_pred.columns:
                         df_pred[feat] = prep['medians'].get(feat, 0) if feat in prep['num_cols'] else prep['modes'].get(feat, 'desconocido')
                         
+                # Codificación SEGURA usando mapeo precomputado (evita fallos de LabelEncoder)
                 for col in prep['cat_cols']:
                     if col in df_pred.columns and col in prep['cat_mapping']:
                         raw_val = str(df_pred[col].values[0]).strip().lower()
                         df_pred[col] = prep['cat_mapping'][col].get(raw_val, 0)
                         
+                # Alinear EXACTAMENTE con el orden de entrenamiento
                 df_pred = df_pred.reindex(columns=prep['feature_names'])
                 X_scaled = prep['scaler'].transform(df_pred)
                 
