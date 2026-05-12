@@ -88,38 +88,17 @@ if st.session_state.df is not None:
 
 # ==================== PÁGINAS ====================
 if page == "🏠 Inicio":
-    st.title("🎓 Predicción de Abandono Escolar")
-    st.markdown("---")
+    st.markdown("### 📚 Sobre el Proyecto")
+    st.markdown("Este proyecto implementa un modelo de Machine Learning clásico para predecir el riesgo de abandono escolar en estudiantes.")
     
-    col1, col2 = st.columns(2)
-    with col1:
-        st.markdown("""
-        ### 📚 Sobre el Proyecto
-        Este proyecto implementa un modelo de Machine Learning clásico para predecir el riesgo de abandono escolar en estudiantes.
-        
-        ### 🎯 Objetivos
-        - Identificar estudiantes en riesgo de abandono
-        - Proporcionar recomendaciones de intervención
-        - Analizar factores clave del abandono escolar
-        """)
-    with col2:
-        st.markdown("""
-        ### 📋 Formulación del Problema
-        - **Tipo de aprendizaje:** Supervisado
-        - **Tarea:** Clasificación binaria
-        - **Variable objetivo:** Abandono (0/1)
-        - **Métrica de éxito:** F1-Score, ROC-AUC
-        """)
-        
-    st.markdown("---")
-    st.markdown("""
-    ### 🤖 Modelos Implementados
-    Se utilizan 4 modelos ML clásicos:
-    1. **Logistic Regression** → Modelo lineal simple y interpretable
-    2. **Random Forest** → Ensemble de árboles de decisión
-    3. **Gradient Boosting** → Boosting secuencial de árboles
-    4. **Support Vector Machine (SVM)** → Máquinas de vectores de soporte
-    """)
+    st.markdown("### 🎯 Objetivos")
+    st.markdown("- Identificar estudiantes en riesgo de abandono\n- Proporcionar recomendaciones de intervención\n- Analizar factores clave del abandono escolar")
+    
+    st.markdown("### 📋 Formulación del Problema")
+    st.markdown("- **Tipo de aprendizaje:** Supervisado\n- **Tarea:** Clasificación binaria\n- **Variable objetivo:** Abandono (0/1)\n- **Métrica de éxito:** F1-Score, ROC-AUC")
+    
+    st.markdown("### 🤖 Modelos Implementados")
+    st.markdown("Se utilizan 4 modelos ML clásicos:\n1. **Logistic Regression** → Modelo lineal simple y interpretable\n2. **Random Forest** → Ensemble de árboles de decisión\n3. **Gradient Boosting** → Boosting secuencial de árboles\n4. **Support Vector Machine (SVM)** → Máquinas de vectores de soporte")
     
     st.markdown("---")
     m1, m2, m3 = st.columns(3)
@@ -128,17 +107,7 @@ if page == "🏠 Inicio":
     m3.metric("🎓 Categoría", "ML Clásico", "Fundació URV")
     
     st.markdown("---")
-    st.markdown("""
-    ### 📊 Características del Dataset
-    El modelo utiliza las siguientes características:
-    - **Edad:** Edad del estudiante
-    - **GPA:** Promedio de calificaciones
-    - **Asistencia:** Porcentaje de asistencia
-    - **Horas_Estudio:** Horas de estudio semanales
-    - **Socioeconomico:** Nivel socioeconómico
-    - **Primer_Trimestre:** Desempeño primer trimestre
-    - **Motivacion:** Nivel de motivación
-    """)
+    st.markdown("### 📊 Características del Dataset\nEl modelo utiliza las siguientes características:\n- **Edad:** Edad del estudiante\n- **GPA:** Promedio de calificaciones\n- **Asistencia:** Porcentaje de asistencia\n- **Horas_Estudio:** Horas de estudio semanales\n- **Socioeconomico:** Nivel socioeconómico\n- **Primer_Trimestre:** Desempeño primer trimestre\n- **Motivacion:** Nivel de motivación")
 
 elif page == "📊 Análisis EDA":
     st.title("📊 Análisis Exploratorio de Datos")
@@ -152,13 +121,25 @@ elif page == "📊 Análisis EDA":
             df['Abandono'] = np.random.choice([0, 1], len(df))
             
         target = 'Abandono'
+        
+        # ✅ CÁLCULO CORRECTO DE TASA DE ABANDONO
+        if df[target].dtype == 'object':
+            dropout_count = df[target].astype(str).str.lower().isin(['dropout', 'abandono', '1', 'si']).sum()
+        else:
+            unique = df[target].unique()
+            if 0 in unique and 1 in unique:
+                # Si hay más 0s que 1s, probablemente 0=Abandono (invertido)
+                dropout_count = (df[target] == 0).sum() if (df[target]==0).sum() > (df[target]==1).sum() else (df[target] == 1).sum()
+            else:
+                dropout_count = (df[target] == 1).sum()
+        dropout_rate = (dropout_count / len(df)) * 100
+        
         k1, k2, k3, k4 = st.columns(4)
         k1.metric("📊 Total Registros", f"{len(df):,}")
         k2.metric("📋 Características", len(df.columns))
         k3.metric("❌ Valores Faltantes", df.isnull().sum().sum())
-        k4.metric("📉 Tasa de Abandono", f"{df[target].mean()*100:.1f}%")
+        k4.metric("📉 Tasa de Abandono", f"{dropout_rate:.1f}%")
         
-        # ✅ ACORDEÓN VISTA PREVIA
         with st.expander("📋 Vista Previa de Datos"):
             st.dataframe(df.head(15), use_container_width=True)
             
@@ -212,7 +193,6 @@ elif page == "🤖 Entrenamiento":
                     X_train_s = scaler.fit_transform(X_train)
                     X_test_s = scaler.transform(X_test)
                     
-                    # Entrenar modelos manualmente para máxima estabilidad
                     st.session_state.results = {}
                     for m_name in ['logistic_regression', 'random_forest', 'gradient_boosting', 'svm']:
                         clf = DropoutPredictor(model_type=m_name)
@@ -223,22 +203,18 @@ elif page == "🤖 Entrenamiento":
                             'importance': clf.get_feature_importance(X_enc.columns.tolist())
                         }
                     
-                    # 🔑 PIPELINE ROBUSTO: Guardar mapeo seguro de categóricas y estadísticas
+                    # 🔑 PIPELINE ROBUSTO: Guardar mapeo seguro de categóricas
                     cat_mapping = {}
                     for col in encoders.keys():
                         le = encoders[col]
                         cat_mapping[col] = {str(v).strip().lower(): int(le.transform([v])[0]) for v in le.classes_}
                         
                     st.session_state.prep = {
-                        'scaler': scaler, 
-                        'encoders': encoders, 
-                        'feature_names': X_enc.columns.tolist(),
-                        'cat_cols': list(encoders.keys()),
-                        'num_cols': X.select_dtypes('number').columns.tolist(),
+                        'scaler': scaler, 'encoders': encoders, 'feature_names': X_enc.columns.tolist(),
+                        'cat_cols': list(encoders.keys()), 'num_cols': X.select_dtypes('number').columns.tolist(),
                         'medians': X.select_dtypes('number').median().to_dict(),
                         'modes': {c: str(X[c].mode()[0]) for c in encoders.keys()},
-                        'cat_mapping': cat_mapping,
-                        'X_test': X_test_s, 'y_test': y_test # Necesario para permutation importance (SVM)
+                        'cat_mapping': cat_mapping, 'X_test': X_test_s, 'y_test': y_test
                     }
                     st.success("✅ Entrenamiento completado. Pipeline guardado para predicción.")
                 except Exception as e:
@@ -255,7 +231,7 @@ elif page == "🤖 Entrenamiento":
                             'ROC-AUC': f"{m.get('roc_auc', 0):.3f}"})
             st.dataframe(pd.DataFrame(rows), use_container_width=True)
             
-            # 📈 GRÁFICO COMPARATIVO EN COLUMNAS
+            # 📈 GRÁFICO COMPARATIVO
             plot_df = pd.DataFrame(rows).melt(id_vars='Modelo', var_name='Métrica', value_name='Valor')
             plot_df['Valor'] = plot_df['Valor'].astype(float)
             st.plotly_chart(px.bar(plot_df, x='Modelo', y='Valor', color='Métrica', barmode='group', title="Comparación de Rendimiento"), use_container_width=True)
@@ -293,21 +269,17 @@ elif page == "🔮 Predicción":
             try:
                 inp = {'edad': edad, 'gpa': gpa, 'asistencia': assist, 'horas_estudio': horas,
                        'motivacion': motiv, 'primer_trimestre': trim, 'socioeconomico': socio}
-                
                 df_pred = pd.DataFrame([inp])
                 
-                # Rellenar features faltantes con estadísticas REALES del entrenamiento
                 for feat in prep['feature_names']:
                     if feat not in df_pred.columns:
                         df_pred[feat] = prep['medians'].get(feat, 0) if feat in prep['num_cols'] else prep['modes'].get(feat, 'desconocido')
                         
-                # Codificación SEGURA usando mapeo precomputado (evita fallos de LabelEncoder)
                 for col in prep['cat_cols']:
                     if col in df_pred.columns and col in prep['cat_mapping']:
                         raw_val = str(df_pred[col].values[0]).strip().lower()
                         df_pred[col] = prep['cat_mapping'][col].get(raw_val, 0)
                         
-                # Alinear EXACTAMENTE con el orden de entrenamiento
                 df_pred = df_pred.reindex(columns=prep['feature_names'])
                 X_scaled = prep['scaler'].transform(df_pred)
                 
