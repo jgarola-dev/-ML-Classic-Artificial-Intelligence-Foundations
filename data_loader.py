@@ -6,7 +6,6 @@ import numpy as np
 import streamlit as st
 import requests
 import zipfile
-import os
 from pathlib import Path
 import warnings
 warnings.filterwarnings('ignore')
@@ -15,25 +14,13 @@ warnings.filterwarnings('ignore')
 def load_uci_dataset():
     """Carrega el dataset UCI amb gestió d'errors robusta"""
     try:
-        url = "https://archive.ics.uci.edu/static/public/697/predict+students+dropout+and+academic+success.zip"
+        url = "https://archive.ics.uci.edu/static/public/697/predict+students+dropout+and+academic+success.csv"
         response = requests.get(url, timeout=30)
         response.raise_for_status()
-        
-        temp_dir = Path("temp_dataset")
-        temp_dir.mkdir(exist_ok=True)
-        zip_path = temp_dir / "dataset.zip"
-        with open(zip_path, 'wb') as f:
-            f.write(response.content)
-            
-        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            zip_ref.extractall(temp_dir)
-            
-        csv_files = list(temp_dir.glob("**/*.csv"))
-        if csv_files:
-            return pd.read_csv(csv_files[0])
+        return pd.read_csv(pd.io.common.BytesIO(response.content))
     except Exception as e:
         print(f"⚠️ Fallback a demo: {e}")
-    return None
+        return None
 
 def create_sample_dataset(n_samples=2000):
     """Dataset demo amb correlacions reals"""
@@ -50,8 +37,8 @@ def create_sample_dataset(n_samples=2000):
     })
 
 def preprocess_dataset(df):
-    """Neteja suau preservant les 36+ columnes originals"""
-    # 1. Netejar noms de columnes (snake_case)
+    """Neteja suau preservant totes les columnes i crea 'abandono' explícitament"""
+    # 1. Netejar noms de columnes a snake_case
     df.columns = df.columns.str.strip().str.lower().str.replace(r'[^a-z0-9]', '_', regex=True)
     
     # 2. Imputació segura sense eliminar columnes
@@ -60,18 +47,19 @@ def preprocess_dataset(df):
             df[col] = df[col].fillna(df[col].median())
         elif df[col].dtype == 'object':
             mode_val = df[col].mode()
-            df[col] = df[col].fillna(mode_val[0] if not mode_val.empty else 'Desconegut')
+            df[col] = df[col].fillna(mode_val[0] if not mode_val.empty else 'desconegut')
             
-    # 3. Crear target 'abandono' explícitament
-    target_candidates = ['status', 'target']
-    for col in target_candidates:
-        if col in df.columns:
-            df['abandono'] = df[col].apply(lambda x: 1 if 'dropout' in str(x).lower() else 0)
+    # 3. Crear target 'abandono' binari (1=Dropout, 0=Graduate/Enrolled)
+    target_col = None
+    for c in ['target', 'status']:
+        if c in df.columns:
+            target_col = c
             break
             
-    # Si no es troba target, crear-ne un de sintètic per evitar errors
-    if 'abandono' not in df.columns:
-        df['abandono'] = np.random.choice([0, 1], len(df), p=[0.7, 0.3])
+    if target_col:
+        df['abandono'] = df[target_col].apply(lambda x: 1 if 'dropout' in str(x).lower() else 0)
+    else:
+        df['abandono'] = np.random.choice([0, 1], len(df), p=[0.3, 0.7])
         
     return df
 
