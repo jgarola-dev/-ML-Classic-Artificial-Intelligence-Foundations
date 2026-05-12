@@ -54,6 +54,7 @@ if st.sidebar.button("🌐 Cargar Dataset UCI Oficial"):
         try:
             df_raw, source = load_dataset()
             df_proc = preprocess_dataset(df_raw)
+            # Asegurar columna binaria 'Abandono' (1=Dropout, 0=Graduate)
             target_col = next((c for c in ['target', 'status', 'Target', 'Status'] if c in df_proc.columns), None)
             if target_col:
                 df_proc['Abandono'] = df_proc[target_col].apply(lambda x: 1 if 'dropout' in str(x).lower() else 0)
@@ -71,7 +72,7 @@ if st.sidebar.button("🎲 Usar datos de demostración"):
     st.session_state.df = df_demo
     st.sidebar.success("✅ Datos de demostración cargados")
 
-uploaded_file = st.sidebar.file_uploader("📁 Subir CSV personalizado (Browse Files)", type=['csv'])
+uploaded_file = st.sidebar.file_uploader("📁 Subir CSV personalizado", type=['csv'])
 if uploaded_file:
     try:
         df_up = pd.read_csv(uploaded_file)
@@ -91,33 +92,33 @@ if page == "🏠 Inicio":
     st.markdown('<div class="main-title">🎓 Predicción de Abandono Escolar</div>', unsafe_allow_html=True)
     st.markdown("---")
     
-    st.markdown("""
-    ### 📚 Sobre el Proyecto
-    Este proyecto implementa un modelo de Machine Learning clásico para predecir el riesgo de abandono escolar en estudiantes.
-    
-    ### 🎯 Objetivos
-    - Identificar estudiantes en riesgo de abandono
-    - Proporcionar recomendaciones de intervención
-    - Analizar factores clave del abandono escolar
-    """)
-    
-    st.markdown("""
-    ### 📋 Formulación del Problema
-    - **Tipo de aprendizaje:** Supervisado
-    - **Tarea:** Clasificación binaria
-    - **Variable objetivo:** Abandono (0/1)
-    - **Métrica de éxito:** F1-Score, ROC-AUC
-    """)
-    
-    st.markdown("""
-    ### 🤖 Modelos Implementados
-    Se utilizan 4 modelos ML clásicos:
-    1. **Logistic Regression** → Modelo lineal simple y interpretable
-    2. **Random Forest** → Ensemble de árboles de decisión
-    3. **Gradient Boosting** → Boosting secuencial de árboles
-    4. **Support Vector Machine (SVM)** → Máquinas de vectores de soporte
-    """)
-    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("""
+        ### 📚 Sobre el Proyecto
+        Este proyecto implementa un **modelo de Machine Learning clásico** para predecir el riesgo de abandono escolar en estudiantes.
+        
+        ### 🎯 Objetivos
+        - Identificar estudiantes en riesgo de abandono
+        - Proporcionar recomendaciones de intervención
+        - Analizar factores clave del abandono escolar
+        
+        ### 📋 Formulación del Problema
+        - **Tipo de aprendizaje:** Supervisado
+        - **Tarea:** Clasificación binaria
+        - **Variable objetivo:** Abandono (0/1)
+        - **Métrica de éxito:** F1-Score, ROC-AUC
+        """)
+    with col2:
+        st.markdown("""
+        ### 🤖 Modelos Implementados
+        Se utilizan 4 modelos ML clásicos:
+        1. **Logistic Regression** → Modelo lineal simple y interpretable
+        2. **Random Forest** → Ensemble de árboles de decisión
+        3. **Gradient Boosting** → Boosting secuencial de árboles
+        4. **Support Vector Machine (SVM)** → Máquinas de vectores de soporte
+        """)
+        
     st.markdown("---")
     m1, m2, m3 = st.columns(3)
     m1.metric("📊 Modelos", "4", "Clasificadores")
@@ -150,7 +151,7 @@ elif page == "📊 Análisis EDA":
             
         target = 'Abandono'
         
-        # ✅ FIX: Cálculo robusto de tasa de abandono (detecta automáticamente si 0 o 1 es abandono)
+        # ✅ CÁLCULO CORRECTO DE TASA DE ABANDONO (Detección automática de clase)
         if df[target].dtype == 'object':
             dropout_count = df[target].astype(str).str.lower().isin(['dropout', 'abandono', '1', 'si']).sum()
         else:
@@ -166,7 +167,6 @@ elif page == "📊 Análisis EDA":
         k3.metric("❌ Valores Faltantes", df.isnull().sum().sum())
         k4.metric("📉 Tasa de Abandono", f"{dropout_rate:.1f}%")
         
-        # ✅ ACORDEÓN VISTA PREVIA
         with st.expander("📋 Vista Previa de Datos"):
             st.dataframe(df.head(15), use_container_width=True)
             
@@ -175,13 +175,21 @@ elif page == "📊 Análisis EDA":
         if target in num_cols: num_cols.remove(target)
         st.dataframe(df[num_cols].describe().T.round(3), use_container_width=True)
         
+        # ✅ GRÁFICO DE PASTEL ORDENADO CORRECTAMENTE
         st.subheader("🥧 Distribución de Abandonos (%)")
-        counts = df[target].value_counts()
-        labels_map = {0: "No Abandona (0)", 1: "Abandona (1)"}
-        labels = [labels_map.get(idx, str(idx)) for idx in counts.index]
+        counts = df[target].value_counts().sort_index()  # Ordenar por valor (0, 1)
+        labels = []
+        colors = {}
+        for idx in counts.index:
+            if idx == 0:
+                labels.append("No Abandona (0)")
+                colors["No Abandona (0)"] = '#00c853'
+            elif idx == 1:
+                labels.append("Abandona (1)")
+                colors["Abandona (1)"] = '#d32f2f'
+        
         fig_pie = px.pie(values=counts.values, names=labels,
-                        title="Proporción de Clases", hole=0.4, 
-                        color_discrete_map={'No Abandona (0)': '#00c853', 'Abandona (1)': '#d32f2f'})
+                        title="Proporción de Clases", hole=0.4, color_discrete_map=colors)
         fig_pie.update_traces(textposition='inside', textinfo='percent+label')
         st.plotly_chart(fig_pie, use_container_width=True)
         
@@ -237,6 +245,7 @@ elif page == "🤖 Entrenamiento":
                     cat_mapping = {}
                     for col in encoders.keys():
                         le = encoders[col]
+                        # Mapeo insensible a mayúsculas/espacios: "alta" -> 0
                         cat_mapping[col] = {str(v).strip().lower(): int(le.transform([v])[0]) for v in le.classes_}
                         
                     st.session_state.prep = {
@@ -261,7 +270,7 @@ elif page == "🤖 Entrenamiento":
                             'ROC-AUC': f"{m.get('roc_auc', 0):.3f}"})
             st.dataframe(pd.DataFrame(rows), use_container_width=True)
             
-            # 📈 GRÁFICO COMPARATIVO
+            st.subheader("📈 Comparación de Rendimiento")
             plot_df = pd.DataFrame(rows).melt(id_vars='Modelo', var_name='Métrica', value_name='Valor')
             plot_df['Valor'] = plot_df['Valor'].astype(float)
             st.plotly_chart(px.bar(plot_df, x='Modelo', y='Valor', color='Métrica', barmode='group', title="Comparación de Rendimiento"), use_container_width=True)
@@ -273,7 +282,7 @@ elif page == "🤖 Entrenamiento":
                 imp_df['importance'] = imp_df['importance'].clip(lower=0)
                 fig = px.bar(imp_df, x='importance', y='feature', orientation='h',
                             title=f"Top Features ({sel_model.replace('_',' ').title()})")
-                fig.update_xaxes(range=[0, None]) # ✅ Fuerza origen en 0
+                fig.update_xaxes(range=[0, None])
                 st.plotly_chart(fig, use_container_width=True)
 
 elif page == "🔮 Predicción":
@@ -297,23 +306,27 @@ elif page == "🔮 Predicción":
             
         if st.button("🔮 Realizar Predicción", type="primary"):
             try:
+                # 1. Input inicial
                 inp = {'edad': edad, 'gpa': gpa, 'asistencia': assist, 'horas_estudio': horas,
                        'motivacion': motiv, 'primer_trimestre': trim, 'socioeconomico': socio}
-                
                 df_pred = pd.DataFrame([inp])
                 
-                # Rellenar features faltantes con estadísticas REALES del entrenamiento
+                # 2. Rellenar features faltantes con estadísticas REALES del entrenamiento
                 for feat in prep['feature_names']:
                     if feat not in df_pred.columns:
-                        df_pred[feat] = prep['medians'].get(feat, 0) if feat in prep['num_cols'] else prep['modes'].get(feat, 'desconocido')
-                        
-                # Codificación SEGURA usando mapeo precomputado (evita fallos de LabelEncoder)
+                        if feat in prep['num_cols']:
+                            df_pred[feat] = prep['medians'].get(feat, 0.0)
+                        elif feat in prep['cat_cols']:
+                            df_pred[feat] = prep['modes'].get(feat, 'desconocido')
+                            
+                # 3. Codificación SEGURA usando mapeo precomputado (evita fallos de LabelEncoder)
                 for col in prep['cat_cols']:
-                    if col in df_pred.columns and col in prep['cat_mapping']:
+                    if col in df_pred.columns and col in prep.get('cat_mapping', {}):
                         raw_val = str(df_pred[col].values[0]).strip().lower()
+                        # Busca en el mapeo; si no existe, usa 0 por defecto
                         df_pred[col] = prep['cat_mapping'][col].get(raw_val, 0)
                         
-                # Alinear EXACTAMENTE con el orden de entrenamiento
+                # 4. Alinear EXACTAMENTE columnas y escalar CON EL MISMO SCALER
                 df_pred = df_pred.reindex(columns=prep['feature_names'])
                 X_scaled = prep['scaler'].transform(df_pred)
                 
@@ -323,10 +336,15 @@ elif page == "🔮 Predicción":
                 for i, (name, res) in enumerate(st.session_state.results.items()):
                     with cols[i]:
                         model = res['model'].model
-                        # ✅ FIX CRÍTICO: Detectar índice correcto de la clase "Abandono" (1)
-                        dropout_idx = np.where(model.classes_ == 1)[0][0]
-                        prob = model.predict_proba(X_scaled)[0][dropout_idx]
                         
+                        # ✅ FIX CRÍTICO: Detectar índice correcto de la clase "Abandono" (1)
+                        # Scikit-learn no garantiza que el índice 1 sea siempre la clase 'Dropout'
+                        if 1 in model.classes_:
+                            dropout_idx = np.where(model.classes_ == 1)[0][0]
+                            prob = model.predict_proba(X_scaled)[0][dropout_idx]
+                        else:
+                            prob = 0.0  # Fallback si el modelo no conoce la clase 1
+                            
                         # ✅ Umbrales realistas para datos desequilibrados (~30% dropout)
                         if prob > 0.60:
                             risk = "🔴 ALTO RIESGO"
