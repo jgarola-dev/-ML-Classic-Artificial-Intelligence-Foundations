@@ -88,21 +88,54 @@ if st.session_state.df is not None:
 
 # ==================== PÁGINAS ====================
 if page == "🏠 Inicio":
-    st.markdown("### 📚 Sobre el Proyecto")
-    st.markdown("Este proyecto implementa un modelo de Machine Learning clásico para predecir el riesgo de abandono escolar en estudiantes.")
-    st.markdown("### 🎯 Objetivos")
-    st.markdown("- Identificar estudiantes en riesgo de abandono\n- Proporcionar recomendaciones de intervención\n- Analizar factores clave del abandono escolar")
-    st.markdown("### 📋 Formulación del Problema")
-    st.markdown("- **Tipo de aprendizaje:** Supervisado\n- **Tarea:** Clasificación binaria\n- **Variable objetivo:** Abandono (0/1)\n- **Métrica de éxito:** F1-Score, ROC-AUC")
-    st.markdown("### 🤖 Modelos Implementados")
-    st.markdown("Se utilizan 4 modelos ML clásicos:\n1. **Logistic Regression** → Modelo lineal simple y interpretable\n2. **Random Forest** → Ensemble de árboles de decisión\n3. **Gradient Boosting** → Boosting secuencial de árboles\n4. **Support Vector Machine (SVM)** → Máquinas de vectores de soporte")
+    st.title("🎓 Predicción de Abandono Escolar")
+    st.markdown("---")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("""
+        ### 📚 Sobre el Proyecto
+        Este proyecto implementa un modelo de Machine Learning clásico para predecir el riesgo de abandono escolar en estudiantes.
+        
+        ### 🎯 Objetivos
+        - Identificar estudiantes en riesgo de abandono
+        - Proporcionar recomendaciones de intervención
+        - Analizar factores clave del abandono escolar
+        
+        ### 📋 Formulación del Problema
+        - **Tipo de aprendizaje:** Supervisado
+        - **Tarea:** Clasificación binaria
+        - **Variable objetivo:** Abandono (0/1)
+        - **Métrica de éxito:** F1-Score, ROC-AUC
+        """)
+    with col2:
+        st.markdown("""
+        ### 🤖 Modelos Implementados
+        Se utilizan 4 modelos ML clásicos:
+        1. **Logistic Regression** → Modelo lineal simple y interpretable
+        2. **Random Forest** → Ensemble de árboles de decisión
+        3. **Gradient Boosting** → Boosting secuencial de árboles
+        4. **Support Vector Machine (SVM)** → Máquinas de vectores de soporte
+        """)
+        
     st.markdown("---")
     m1, m2, m3 = st.columns(3)
     m1.metric("📊 Modelos", "4", "Clasificadores")
     m2.metric("📈 Métricas", "6+", "Evaluación")
     m3.metric("🎓 Categoría", "ML Clásico", "Fundació URV")
+    
     st.markdown("---")
-    st.markdown("### 📊 Características del Dataset\nEl modelo utiliza las siguientes características:\n- **Edad:** Edad del estudiante\n- **GPA:** Promedio de calificaciones\n- **Asistencia:** Porcentaje de asistencia\n- **Horas_Estudio:** Horas de estudio semanales\n- **Socioeconomico:** Nivel socioeconómico\n- **Primer_Trimestre:** Desempeño primer trimestre\n- **Motivacion:** Nivel de motivación")
+    st.markdown("""
+    ### 📊 Características del Dataset
+    El modelo utiliza las siguientes características:
+    - **Edad:** Edad del estudiante
+    - **GPA:** Promedio de calificaciones
+    - **Asistencia:** Porcentaje de asistencia
+    - **Horas_Estudio:** Horas de estudio semanales
+    - **Socioeconomico:** Nivel socioeconómico
+    - **Primer_Trimestre:** Desempeño primer trimestre
+    - **Motivacion:** Nivel de motivación
+    """)
 
 elif page == "📊 Análisis EDA":
     st.title("📊 Análisis Exploratorio de Datos")
@@ -122,6 +155,7 @@ elif page == "📊 Análisis EDA":
         k3.metric("❌ Valores Faltantes", df.isnull().sum().sum())
         k4.metric("📉 Tasa de Abandono", f"{df[target].mean()*100:.1f}%")
         
+        # ✅ ACORDEÓN VISTA PREVIA
         with st.expander("📋 Vista Previa de Datos"):
             st.dataframe(df.head(15), use_container_width=True)
             
@@ -177,35 +211,44 @@ elif page == "🤖 Entrenamiento":
                     
                     st.session_state.results = compare_models(X_train_s, X_test_s, y_train, y_test, X_enc.columns.tolist())
                     
-                    # Guardar pipeline completo para reutilización EXACTA en predicción
+                    # Mapeo robusto de categóricas para predicción
+                    cat_mapping = {}
+                    for col in encoders.keys():
+                        le = encoders[col]
+                        cat_mapping[col] = {str(v).strip().lower(): le.transform([v])[0] for v in le.classes_}
+                        
                     st.session_state.prep = {
-                        'scaler': scaler, 
-                        'encoders': encoders, 
-                        'feature_names': X_enc.columns.tolist(),
-                        'cat_cols': list(encoders.keys()),
-                        'num_cols': X.select_dtypes('number').columns.tolist(),
+                        'scaler': scaler, 'encoders': encoders, 'feature_names': X_enc.columns.tolist(),
+                        'cat_cols': list(encoders.keys()), 'num_cols': X.select_dtypes('number').columns.tolist(),
                         'medians': X.select_dtypes('number').median().to_dict(),
-                        'modes': {c: X[c].mode()[0] for c in encoders.keys()}
+                        'modes': {c: X[c].mode()[0] for c in encoders.keys()},
+                        'cat_mapping': cat_mapping
                     }
                     st.success("✅ Entrenamiento completado. Pipeline guardado.")
                 except Exception as e:
                     st.error(f"❌ Error: {str(e)}")
                     
         if st.session_state.results:
-            st.subheader("📊 Comparativa de Modelos")
+            st.subheader("📊 Resultados de Modelos")
             rows = []
             for name, res in st.session_state.results.items():
                 m = res['metrics']
                 rows.append({'Modelo': name.replace('_',' ').title(), 
                             'Accuracy': f"{m['accuracy']:.3f}", 'Precision': f"{m['precision']:.3f}",
-                            'Recall': f"{m['recall']:.3f}", 'F1': f"{m['f1']:.3f}", 
+                            'Recall': f"{m['recall']:.3f}", 'F1-Score': f"{m['f1']:.3f}", 
                             'ROC-AUC': f"{m.get('roc_auc', 0):.3f}"})
             st.dataframe(pd.DataFrame(rows), use_container_width=True)
+            
+            # ✅ GRÁFICO COMPARATIVO EN COLUMNAS
+            plot_df = pd.DataFrame(rows).melt(id_vars='Modelo', var_name='Métrica', value_name='Valor')
+            plot_df['Valor'] = plot_df['Valor'].astype(float)
+            st.plotly_chart(px.bar(plot_df, x='Modelo', y='Valor', color='Métrica', barmode='group', title="Comparación de Rendimiento"), use_container_width=True)
             
             st.subheader("🔍 Importancia de Características")
             sel_model = st.selectbox("Selecciona modelo:", list(st.session_state.results.keys()))
             imp_df = st.session_state.results[sel_model]['importance']
             if imp_df is not None and not imp_df.empty:
+                imp_df['importance'] = imp_df['importance'].clip(lower=0)
                 fig = px.bar(imp_df, x='importance', y='feature', orientation='h',
                             title=f"Top Features ({sel_model.replace('_',' ').title()})")
                 fig.update_xaxes(range=[0, None])
@@ -213,18 +256,18 @@ elif page == "🤖 Entrenamiento":
 
 elif page == "🔮 Predicción":
     st.title("🔮 Predicción Individual")
-    if not st.session_state.prep:
-        st.info("ℹ️ Entrena modelos primero en la sección 🤖 Entrenamiento para guardar escaladores y codificadores.")
+    if st.session_state.prep is None:
+        st.info("ℹ️ Entrena primero en la sección 🤖 Entrenamiento para guardar escaladores y codificadores.")
     else:
         prep = st.session_state.prep
-        st.markdown("📌 *Introduce valores para verificar la sensibilidad del modelo*")
+        st.markdown("📌 *Ajusta los valores para ver cómo cambia la probabilidad en tiempo real*")
         
         c1, c2 = st.columns(2)
         with c1:
-            edad = st.number_input("🎂 Edad", 15, 50, 19)
-            gpa = st.slider("📚 GPA / Nota Promedio (0-5)", 0.0, 5.0, 3.0)
+            edad = st.number_input("🎂 Edad", 15, 50, 20)
+            gpa = st.slider("📚 GPA / Nota Promedio (0-5)", 0.0, 5.0, 3.5)
             assist = st.slider("📅 Asistencia (%)", 0, 100, 85)
-            horas = st.slider("⏱️ Horas de Estudio (semanales)", 0, 20, 5)
+            horas = st.slider("⏱️ Horas de Estudio (semanales)", 0, 30, 10)
         with c2:
             motiv = st.selectbox("💡 Motivación", ['Baja', 'Media', 'Alta'])
             trim = st.selectbox("📋 Desempeño 1er Trimestre", ['Aprobado', 'Reprobado'])
@@ -232,39 +275,40 @@ elif page == "🔮 Predicción":
             
         if st.button("🔮 Realizar Predicción", type="primary"):
             try:
-                # 1. Input exacto
                 inp = {'edad': edad, 'gpa': gpa, 'asistencia': assist, 'horas_estudio': horas,
                        'motivacion': motiv, 'primer_trimestre': trim, 'socioeconomico': socio}
                 
-                # 2. Rellenar columnas faltantes con estadísticas del entrenamiento
-                for feat in prep['feature_names']:
-                    if feat not in inp:
-                        inp[feat] = prep['medians'].get(feat, 0) if feat in prep['num_cols'] else prep['modes'].get(feat, 'desconocido')
-                        
-                pred_df = pd.DataFrame([inp])
+                df_pred = pd.DataFrame([inp])
                 
-                # 3. Aplicar EXACTAMENTE los encoders guardados del entrenamiento
+                # Rellenar features UCI faltantes
+                for feat in prep['feature_names']:
+                    if feat not in df_pred.columns:
+                        df_pred[feat] = prep['medians'].get(feat, 0) if feat in prep['num_cols'] else prep['modes'].get(feat, 'desconocido')
+                        
+                # Codificación SEGURA usando mapeo guardado (evita fallos de LabelEncoder)
                 for col in prep['cat_cols']:
-                    le = prep['encoders'][col]
-                    val = str(pred_df[col].values[0])
-                    pred_df[col] = le.transform([val])[0] if val in le.classes_ else 0
-                    
-                # 4. Reordenar y escalar CON EL MISMO SCALER DEL ENTRENAMIENTO (CRÍTICO)
-                pred_df = pred_df[prep['feature_names']]
-                X_scaled = prep['scaler'].transform(pred_df)
+                    if col in df_pred.columns and col in prep['cat_mapping']:
+                        raw_val = str(df_pred[col].values[0]).strip().lower()
+                        df_pred[col] = prep['cat_mapping'][col].get(raw_val, 0)
+                        
+                # Alinear EXACTAMENTE con el orden de entrenamiento
+                df_pred = df_pred.reindex(columns=prep['feature_names'])
+                X_scaled = prep['scaler'].transform(df_pred)
                 
                 st.markdown("---")
                 st.subheader("🎯 Resultados de Probabilidad")
                 cols = st.columns(4)
                 for i, (name, res) in enumerate(st.session_state.results.items()):
                     with cols[i]:
-                        p = res['model'].model.predict(X_scaled)[0]
-                        prob = res['model'].model.predict_proba(X_scaled)[0][1] if hasattr(res['model'].model, 'predict_proba') else 0.5
+                        prob = res['model'].model.predict_proba(X_scaled)[0][1]
                         risk = "🔴 ALTO RIESGO" if prob > 0.5 else "🟢 BAJO RIESGO"
                         st.metric(name.replace('_',' ').title(), risk, delta=f"Prob: {prob:.1%}")
+                        
             except Exception as e:
                 st.error(f"❌ Error en predicción: {str(e)}")
+                st.exception(e)
 
+# ==================== FOOTER ====================
 st.markdown("---")
 st.markdown("""
 <div style='text-align: center; color: #6c757d; font-size: 0.85rem;'>
