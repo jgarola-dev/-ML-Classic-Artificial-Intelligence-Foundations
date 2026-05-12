@@ -345,7 +345,7 @@ elif page == "🤖 Entrenamiento":
                 st.plotly_chart(fig, use_container_width=True)
 
 elif page == "🔮 Predicción":
-    st.title("🔮 Predicción Individual - Basada en UCI")
+    st.title("🔮 Predicción Individual ")
     if st.session_state.prep is None:
         st.info("ℹ️ Entrena primero en la sección 🤖 Entrenamiento")
     else:
