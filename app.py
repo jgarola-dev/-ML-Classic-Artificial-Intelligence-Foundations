@@ -91,24 +91,27 @@ if page == "🏠 Inicio":
     st.markdown('<div class="main-title">🎓 Predicción de Abandono Escolar</div>', unsafe_allow_html=True)
     st.markdown("---")
     
-    st.markdown("""
-    ### 📚 Sobre el Proyecto
-    Este proyecto implementa un modelo de Machine Learning clásico para predecir el riesgo de abandono escolar en estudiantes.
-    
-    ### 🎯 Objetivos
-    - Identificar estudiantes en riesgo de abandono
-    - Proporcionar recomendaciones de intervención
-    - Analizar factores clave del abandono escolar
-    """)
-    
-    st.markdown("""
-    ### 📋 Formulación del Problema
-    - **Tipo de aprendizaje:** Supervisado
-    - **Tarea:** Clasificación binaria
-    - **Variable objetivo:** Abandono (0/1)
-    - **Métrica de éxito:** F1-Score, ROC-AUC
-    """)
-    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("""
+        ### 📚 Sobre el Proyecto
+        Este proyecto implementa un modelo de Machine Learning clásico para predecir el riesgo de abandono escolar en estudiantes.
+        
+        ### 🎯 Objetivos
+        - Identificar estudiantes en riesgo de abandono
+        - Proporcionar recomendaciones de intervención
+        - Analizar factores clave del abandono escolar
+        """)
+    with col2:
+        st.markdown("""
+        ### 📋 Formulación del Problema
+        - **Tipo de aprendizaje:** Supervisado
+        - **Tarea:** Clasificación binaria
+        - **Variable objetivo:** Abandono (0/1)
+        - **Métrica de éxito:** F1-Score, ROC-AUC
+        """)
+        
+    st.markdown("---")
     st.markdown("""
     ### 🤖 Modelos Implementados
     Se utilizan 4 modelos ML clásicos:
@@ -150,13 +153,12 @@ elif page == "📊 Análisis EDA":
             
         target = 'Abandono'
         
-        # ✅ FIX: Cálculo robusto de tasa de abandono (detecta automáticamente si 0 o 1 es abandono)
+        # ✅ CÁLCULO CORRECTO DE TASA DE ABANDONO
         if df[target].dtype == 'object':
             dropout_count = df[target].astype(str).str.lower().isin(['dropout', 'abandono', '1', 'si']).sum()
         else:
             count_1 = (df[target] == 1).sum()
             count_0 = (df[target] == 0).sum()
-            # Por convención en datasets educativos, la clase minoritaria suele ser "Abandono"
             dropout_count = count_1 if count_1 < count_0 else count_0
         dropout_rate = (dropout_count / len(df)) * 100
         
@@ -166,7 +168,6 @@ elif page == "📊 Análisis EDA":
         k3.metric("❌ Valores Faltantes", df.isnull().sum().sum())
         k4.metric("📉 Tasa de Abandono", f"{dropout_rate:.1f}%")
         
-        # ✅ ACORDEÓN VISTA PREVIA
         with st.expander("📋 Vista Previa de Datos"):
             st.dataframe(df.head(15), use_container_width=True)
             
@@ -297,49 +298,73 @@ elif page == "🔮 Predicción":
             
         if st.button("🔮 Realizar Predicción", type="primary"):
             try:
-                inp = {'edad': edad, 'gpa': gpa, 'asistencia': assist, 'horas_estudio': horas,
-                       'motivacion': motiv, 'primer_trimestre': trim, 'socioeconomico': socio}
-                
-                df_pred = pd.DataFrame([inp])
-                
-                # Rellenar features faltantes con estadísticas REALES del entrenamiento
+                # 🔧 CONSTRUCCIÓN ROBUSTA DEL VECTOR DE PREDICCIÓN
+                # Garantiza alineación exacta con feature_names del entrenamiento
+                X_pred = {}
                 for feat in prep['feature_names']:
-                    if feat not in df_pred.columns:
-                        df_pred[feat] = prep['medians'].get(feat, 0) if feat in prep['num_cols'] else prep['modes'].get(feat, 'desconocido')
-                        
-                # Codificación SEGURA usando mapeo precomputado (evita fallos de LabelEncoder)
-                for col in prep['cat_cols']:
-                    if col in df_pred.columns and col in prep['cat_mapping']:
+                    if feat == 'edad':
+                        X_pred[feat] = edad
+                    elif feat == 'gpa':
+                        X_pred[feat] = gpa
+                    elif feat == 'asistencia':
+                        X_pred[feat] = assist
+                    elif feat == 'horas_estudio':
+                        X_pred[feat] = horas
+                    elif feat == 'motivacion':
+                        X_pred[feat] = motiv
+                    elif feat == 'primer_trimestre':
+                        X_pred[feat] = trim
+                    elif feat == 'socioeconomico':
+                        X_pred[feat] = socio
+                    else:
+                        # Rellenar con estadísticas reales del entrenamiento
+                        if feat in prep.get('num_cols', []):
+                            X_pred[feat] = prep.get('medians', {}).get(feat, 0.0)
+                        elif feat in prep.get('cat_cols', []):
+                            X_pred[feat] = prep.get('modes', {}).get(feat, 'desconocido')
+                        else:
+                            X_pred[feat] = 0.0
+
+                df_pred = pd.DataFrame([X_pred])
+
+                # Codificación SEGURA usando mapeo precomputado
+                for col in prep.get('cat_cols', []):
+                    if col in df_pred.columns and col in prep.get('cat_mapping', {}):
                         raw_val = str(df_pred[col].values[0]).strip().lower()
                         df_pred[col] = prep['cat_mapping'][col].get(raw_val, 0)
-                        
-                # Alinear EXACTAMENTE con el orden de entrenamiento
+
+                # Alinear EXACTAMENTE y escalar
                 df_pred = df_pred.reindex(columns=prep['feature_names'])
+                df_pred = df_pred.fillna(0) # Fallback de seguridad
                 X_scaled = prep['scaler'].transform(df_pred)
                 
+                # 📊 RESULTADOS
                 st.markdown("---")
-                st.subheader("🎯 Resultados de Probabilidad")
+                st.subheader("🎯 Resultados de Probabilidad de Abandono")
                 cols = st.columns(4)
                 for i, (name, res) in enumerate(st.session_state.results.items()):
                     with cols[i]:
                         model = res['model'].model
-                        # ✅ FIX CRÍTICO: Detectar índice correcto de la clase "Abandono" (1)
-                        dropout_idx = np.where(model.classes_ == 1)[0][0]
-                        prob = model.predict_proba(X_scaled)[0][dropout_idx]
+                        # Extraer probabilidad de la clase 1 (Abandono) de forma segura
+                        proba = model.predict_proba(X_scaled)[0]
+                        dropout_idx = np.where(model.classes_ == 1)[0][0] if 1 in model.classes_ else 1
+                        prob_dropout = proba[dropout_idx]
                         
-                        # ✅ Umbrales realistas para datos desequilibrados (~30% dropout)
-                        if prob > 0.60:
-                            risk = "🔴 ALTO RIESGO"
-                            delta_color = "inverse"
-                        elif prob > 0.35:
-                            risk = "🟡 RIESGO MODERADO"
-                            delta_color = "normal"
+                        # Umbrales realistas para sensibilidad
+                        if prob_dropout > 0.60:
+                            risk, color = "🔴 ALTO RIESGO", "inverse"
+                        elif prob_dropout > 0.35:
+                            risk, color = "🟡 RIESGO MODERADO", "normal"
                         else:
-                            risk = "🟢 BAJO RIESGO"
-                            delta_color = "normal"
+                            risk, color = "🟢 BAJO RIESGO", "normal"
                             
-                        st.metric(name.replace('_',' ').title(), risk, delta=f"Prob: {prob:.1%}", delta_color=delta_color)
+                        st.metric(name.replace('_',' ').title(), risk, delta=f"Prob: {prob_dropout:.1%}", delta_color=color)
                         
+                # 🔍 Debug transparente para verificar sensibilidad
+                with st.expander("🔍 Ver datos procesados enviados al modelo"):
+                    st.dataframe(df_pred.T.rename(columns={0: 'Valor'}), use_container_width=True)
+                    st.info(f"📐 Escalado: StandardScaler del entrenamiento | Clases modelo: {list(res['model'].model.classes_)}")
+                    
             except Exception as e:
                 st.error(f"❌ Error en predicción: {str(e)}")
                 st.exception(e)
