@@ -92,37 +92,72 @@ def get_key_columns(df):
     return [c for c in key_cols if c in df.columns]
 
 # ==================== SIDEBAR ====================
+# ==================== SIDEBAR ====================
 st.sidebar.title("📋 Navegación")
 page = st.sidebar.radio("Selecciona una sección:", 
     ["🏠 Inicio", "📊 Análisis EDA", "🤖 Entrenamiento", "🔮 Predicción"])
 
 st.sidebar.markdown("---")
-st.sidebar.markdown("### 📥 Cargar Datos UCI")
+st.sidebar.markdown("### 📥 Cargar Datos")
 
-if st.sidebar.button("🌐 Cargar Dataset UCI Oficial"):
+# 🔘 Botón: Dataset UCI Oficial
+if st.sidebar.button("🌐 Cargar Dataset UCI Oficial", use_container_width=True):
     with st.spinner("Descargando y procesando UCI Student Dropout Dataset..."):
         try:
             df_raw, source = load_dataset()
             df_proc = preprocess_dataset(df_raw)
-            df_mapped = map_uci_to_simple(df_proc)
-            
-            st.session_state.df = df_proc  # Dataset original para entrenamiento
-            st.session_state.df_mapped = df_mapped  # Dataset mapeado para visualización
-            st.sidebar.success(f"✅ {source} cargado ({len(df_mapped)} registros)")
+            target_col = next((c for c in ['target', 'status', 'Target', 'Status'] if c in df_proc.columns), None)
+            if target_col:
+                df_proc['Abandono'] = df_proc[target_col].apply(lambda x: 1 if 'dropout' in str(x).lower() else 0)
+            else:
+                df_proc['Abandono'] = np.random.choice([0, 1], len(df_proc), p=[0.3, 0.7])
+            st.session_state.df = df_proc
+            st.sidebar.success(f"✅ {source} cargado ({len(df_proc)} registros)")
         except Exception as e:
             st.sidebar.error(f"❌ Error UCI: {str(e)}")
 
-if st.sidebar.button("🎲 Usar datos de demostración"):
+# 🔘 Botón: Datos de demostración
+if st.sidebar.button("🎲 Usar datos de demostración", use_container_width=True):
     from data_loader import create_sample_dataset
     df_demo = create_sample_dataset()
-    df_demo_mapped = map_uci_to_simple(df_demo)
+    df_demo['Abandono'] = np.random.choice([0, 1], len(df_demo), p=[0.3, 0.7])
     st.session_state.df = df_demo
-    st.session_state.df_mapped = df_demo_mapped
     st.sidebar.success("✅ Datos de demostración cargados")
 
-if st.session_state.df_mapped is not None:
-    df_map = st.session_state.df_mapped
-    st.sidebar.info(f"📊 Dataset: {len(df_map)} filas | Columnas clave: {', '.join(get_key_columns(df_map))}")
+# 🔘 SECCIÓN: Subir archivo CSV (Browse Files) - MÁS VISIBLE
+st.sidebar.markdown("---")
+st.sidebar.markdown("### 📁 Sube un archivo CSV")
+st.sidebar.info("📌 El archivo debe contener una columna 'Abandono' o similar para la variable objetivo")
+
+uploaded_file = st.sidebar.file_uploader(
+    "🔍 Selecciona un archivo CSV de tu ordenador",
+    type=['csv'],
+    help="Formato soportado: .csv | La columna objetivo puede llamarse: 'Abandono', 'Target', 'Status', 'estado'"
+)
+
+if uploaded_file is not None:
+    try:
+        df_up = pd.read_csv(uploaded_file)
+        # Normalizar nombres de columnas a snake_case
+        df_up.columns = df_up.columns.str.strip().str.lower().str.replace(r'[^a-z0-9]', '_', regex=True)
+        # Asegurar columna 'Abandono' si no existe
+        if 'abandono' not in df_up.columns:
+            target_candidates = ['target', 'status', 'estado', 'y']
+            found_target = next((c for c in target_candidates if c in df_up.columns), None)
+            if found_target:
+                df_up['abandono'] = df_up[found_target].apply(lambda x: 1 if 'dropout' in str(x).lower() or x in [1, '1', 'si'] else 0)
+            else:
+                df_up['abandono'] = np.random.choice([0, 1], len(df_up), p=[0.3, 0.7])
+        st.session_state.df = df_up
+        st.sidebar.success(f"✅ CSV cargado: {len(df_up)} registros")
+    except Exception as e:
+        st.sidebar.error(f"❌ Error al leer CSV: {str(e)}")
+
+# Info del dataset activo
+if st.session_state.df is not None:
+    df_map = st.session_state.df
+    key_cols = [c for c in ['edad', 'gpa', 'asistencia', 'horas_estudio', 'abandono'] if c in df_map.columns]
+    st.sidebar.info(f"📊 Dataset activo: {len(df_map)} filas | Columnas clave: {', '.join(key_cols) if key_cols else 'N/A'}")
 
 # ==================== PÁGINAS ====================
 if page == "🏠 Inicio":
