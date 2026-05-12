@@ -1,26 +1,30 @@
 """
-Model training and evaluation module
+Model training and evaluation module for student dropout prediction
 """
 import numpy as np
 import pandas as pd
+import joblib
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.svm import SVC
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score
-from sklearn.inspection import permutation_importance
+from sklearn.metrics import (accuracy_score, precision_score, recall_score,
+                             f1_score, roc_auc_score, confusion_matrix,
+                             classification_report)
 import warnings
 warnings.filterwarnings('ignore')
 
 class DropoutPredictor:
+    """Modelo ML para predicción de abandono escolar"""
     def __init__(self, model_type='random_forest', random_state=42):
         self.model_type = model_type
         self.random_state = random_state
         self.model = self._create_model()
         self.metrics = {}
-        self.X_test = None
-        self.y_test = None
+        self.feature_importance = None
+        self.feature_names = None
 
     def _create_model(self):
+        """Crea el modelo según el tipo especificado"""
         models = {
             'logistic_regression': LogisticRegression(random_state=self.random_state, max_iter=1000, class_weight='balanced'),
             'random_forest': RandomForestClassifier(n_estimators=100, random_state=self.random_state, class_weight='balanced'),
@@ -30,40 +34,90 @@ class DropoutPredictor:
         return models.get(self.model_type, RandomForestClassifier(random_state=self.random_state))
 
     def train(self, X_train, y_train):
+        """Entrena el modelo"""
         self.model.fit(X_train, y_train)
+        self.feature_names = getattr(X_train, 'columns', None)
+        
+        if hasattr(self.model, 'feature_importances_'):
+            self.feature_importance = self.model.feature_importances_
+        elif hasattr(self.model, 'coef_') and self.model.coef_ is not None:
+            self.feature_importance = np.abs(self.model.coef_[0])
+
+    def predict(self, X):
+        """Realiza predicciones"""
+        return self.model.predict(X)
+
+    def predict_proba(self, X):
+        """Predicciones con probabilidades"""
+        return self.model.predict_proba(X)
 
     def evaluate(self, X_test, y_test):
-        self.X_test = X_test
-        self.y_test = y_test
-        y_pred = self.model.predict(X_test)
-        y_proba = self.model.predict_proba(X_test)[:, 1] if hasattr(self.model, 'predict_proba') else None
+        """Evalúa el modelo con múltiples métricas"""
+        y_pred = self.predict(X_test)
+        y_pred_proba = self.predict_proba(X_test)[:, 1]
+        
         self.metrics = {
             'accuracy': accuracy_score(y_test, y_pred),
             'precision': precision_score(y_test, y_pred, zero_division=0),
             'recall': recall_score(y_test, y_pred, zero_division=0),
             'f1': f1_score(y_test, y_pred, zero_division=0),
-            'roc_auc': roc_auc_score(y_test, y_proba) if y_proba is not None else 0.5
+            'roc_auc': roc_auc_score(y_test, y_pred_proba),
+            'confusion_matrix': confusion_matrix(y_test, y_pred),
+            'classification_report': classification_report(y_test, y_pred)
         }
         return self.metrics
 
     def get_feature_importance(self, feature_names=None, top_n=10):
-        if feature_names is None or self.X_test is None:
+        """Retorna las características más importantes"""
+        if self.feature_importance is None or feature_names is None:
             return None
-        try:
-            if hasattr(self.model, 'feature_importances_'):
-                importances = self.model.feature_importances_
-            elif hasattr(self.model, 'coef_') and self.model.coef_ is not None:
-                importances = np.abs(self.model.coef_[0])
-            else:
-                # Fallback seguro para SVM RBF
-                perm = permutation_importance(self.model, self.X_test, self.y_test, 
-                                            n_repeats=10, random_state=42, n_jobs=-1)
-                importances = perm.importances_mean
-            df_imp = pd.DataFrame({'feature': feature_names, 'importance': importances})
-            df_imp['importance'] = df_imp['importance'].clip(lower=0)
-            return df_imp.sort_values('importance', ascending=False).head(top_n)
-        except Exception:
-            return pd.DataFrame({'feature': feature_names[:top_n], 'importance': [0]*top_n})
+            
+        importance_df = pd.DataFrame({
+            'feature': feature_names,
+            'importance': self.feature_importance
+        })
+        importance_df['importance'] = importance_df['importance'].clip(lower=0)
+        return importance_df.sort_values('importance', ascending=False).head(top_n)
+
+    def save_model(self, filepath):
+        """Guarda el modelo entrenado"""
+        joblib.dump(self.model, filepath)
+
+    def load_model(self, filepath):
+        """Carga un modelo entrenado"""
+        self.model = joblib.load(filepath)
+        
+    def get_metrics(self):
+        """Retorna las métricas de evaluación"""
+        return self.metrics
+
+    def get_recommendation(self, pred, prob=None):
+        """Proporciona recomendaciones basadas en predicción"""
+        if prob is None:
+            return "🚨 RIESGO DE ABANDONO DETECTADO" if pred == 1 else "✅ BAJO RIESGO DE ABANDONO"
+        if prob > 0.7:
+            return "🚨 RIESGO ALTO de abandono escolar"
+        elif prob > 0.4:
+            return "⚠️ RIESGO MEDIO de abandono escolar"
+        else:
+            return "✅ BAJO RIESGO de abandono escolar"
+
+def compare_models(X_train, X_test, y_train, y_test, feature_names=None):
+    """Entrena y compara múltiples modelos"""
+    model_types = ['logistic_regression', 'random_forest', 'gradient_boosting', 'svm']
+    results = {}
+    
+    for model_type in model_types:
+        predictor = DropoutPredictor(model_type=model_type)
+        predictor.train(X_train, y_train)
+        metrics = predictor.evaluate(X_test, y_test)
+        results[model_type] = {
+            'model': predictor,
+            'metrics': metrics,
+            'importance': predictor.get_feature_importance(feature_names)
+        }
+        
+    return results
 
 if __name__ == "__main__":
     print("✅ Model module loaded successfully")
