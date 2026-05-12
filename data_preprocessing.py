@@ -98,3 +98,5 @@ def prepare_data(df, target_col, test_size=0.2, random_state=42):
 # ✅ CORRECCIÓN APLICADA AQUÍ
 if __name__ == "__main__":
     print("✅ Data preprocessing module loaded successfully")
+if __name__ == "__main__":
+    print("✅ Data preprocessing module loaded successfully")
