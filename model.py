@@ -1,5 +1,5 @@
 """
-Model training and evaluation module with safe feature importance
+Model training, evaluation & tuning module
 """
 import numpy as np
 import pandas as pd
@@ -7,7 +7,7 @@ from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.svm import SVC
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score
-from sklearn.inspection import permutation_importance
+from sklearn.model_selection import GridSearchCV
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -17,8 +17,6 @@ class DropoutPredictor:
         self.model = self._create_model()
         self.metrics = {}
         self.feature_importance = None
-        self.X_test = None
-        self.y_test = None
 
     def _create_model(self):
         models = {
@@ -31,10 +29,13 @@ class DropoutPredictor:
 
     def train(self, X_train, y_train):
         self.model.fit(X_train, y_train)
-        
+        # Extraer importancia de forma segura
+        if hasattr(self.model, 'feature_importances_'):
+            self.feature_importance = self.model.feature_importances_
+        elif hasattr(self.model, 'coef_'):
+            self.feature_importance = np.abs(self.model.coef_[0])
+            
     def evaluate(self, X_test, y_test):
-        self.X_test = X_test
-        self.y_test = y_test
         y_pred = self.model.predict(X_test)
         y_proba = self.model.predict_proba(X_test)[:, 1] if hasattr(self.model, 'predict_proba') else None
         self.metrics = {
@@ -46,30 +47,52 @@ class DropoutPredictor:
         }
         return self.metrics
 
-    def get_feature_importance(self, feature_names=None, top_n=10):
-        if feature_names is None or self.X_test is None:
+    def get_feature_importance_df(self, feature_names, top_n=10):
+        if self.feature_importance is None or feature_names is None:
             return None
-        try:
-            if hasattr(self.model, 'feature_importances_'):
-                importances = self.model.feature_importances_
-            elif hasattr(self.model, 'coef_') and self.model.coef_ is not None:
-                importances = np.abs(self.model.coef_[0])
-            else:
-                # Fallback segur per SVM (RBF) i altres sense coeficients explícits
-                perm = permutation_importance(self.model, self.X_test, self.y_test, 
-                                            n_repeats=5, random_state=42, n_jobs=-1)
-                importances = perm.importances_mean
-                
-            df_imp = pd.DataFrame({'feature': feature_names, 'importance': importances})
-            return df_imp.sort_values('importance', ascending=False).head(top_n)
-        except Exception:
-            return pd.DataFrame({'feature': feature_names[:top_n], 'importance': [0]*top_n})
+        df = pd.DataFrame({'feature': feature_names, 'importance': self.feature_importance})
+        return df.sort_values('importance', ascending=False).head(top_n)
 
-def compare_models(X_train, X_test, y_train, y_test, feature_names):
+def compare_and_tune(X_train, y_train, X_test, y_test, feature_names):
+    """Entrena 4 modelos + GridSearchCV en Random Forest"""
+    models_to_train = ['logistic_regression', 'random_forest', 'gradient_boosting', 'svm']
     results = {}
-    for m in ['logistic_regression', 'random_forest', 'gradient_boosting', 'svm']:
+    
+    # 1. Entrenar modelos base
+    for m in models_to_train:
         clf = DropoutPredictor(model_type=m)
         clf.train(X_train, y_train)
-        metrics = clf.evaluate(X_test, y_test)
-        results[m] = {'model': clf, 'metrics': metrics, 'importance': clf.get_feature_importance(feature_names)}
-    return results
+        results[m] = {
+            'model': clf,
+            'metrics': clf.evaluate(X_test, y_test),
+            'importance': clf.get_feature_importance_df(feature_names, top_n=10)
+        }
+        
+    # 2. Hyperparameter Tuning (Requisito URV)
+    param_grid = {
+        'n_estimators': [50, 100, 200],
+        'max_depth': [5, 10, 20, None],
+        'min_samples_split': [2, 5, 10],
+        'class_weight': ['balanced']
+    }
+    
+    grid = GridSearchCV(
+        RandomForestClassifier(random_state=42), param_grid,
+        scoring='f1', cv=3, n_jobs=-1, verbose=0
+    )
+    grid.fit(X_train, y_train)
+    
+    tuning_results = {
+        'best_params': grid.best_params_,
+        'best_f1': grid.best_score_,
+        'baseline_f1': results['random_forest']['metrics']['f1'],
+        'improvement': ((grid.best_score_ - results['random_forest']['metrics']['f1']) / results['random_forest']['metrics']['f1']) * 100
+    }
+    
+    # Actualizar modelo RF con mejores params
+    results['random_forest']['model'] = DropoutPredictor('random_forest')
+    results['random_forest']['model'].model = grid.best_estimator_
+    results['random_forest']['model'].train(X_train, y_train)
+    results['random_forest']['metrics'] = results['random_forest']['model'].evaluate(X_test, y_test)
+    
+    return results, tuning_results
