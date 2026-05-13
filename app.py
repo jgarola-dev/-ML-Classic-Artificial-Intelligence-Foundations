@@ -381,4 +381,4 @@ st.markdown(
     </div>
     """,
     unsafe_allow_html=True
-) Student Dropout</p></div>", unsafe_allow_html=True)
+)
