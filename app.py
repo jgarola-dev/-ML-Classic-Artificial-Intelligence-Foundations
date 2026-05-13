@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 Streamlit App: ML Clásico - Predicción de Abandono Escolar
 Artificial Intelligence Foundations | Fundació URV | Abril 2026
@@ -14,7 +15,7 @@ from sklearn.preprocessing import StandardScaler, LabelEncoder
 import warnings
 warnings.filterwarnings('ignore')
 
-# 🔧 Fix para imports locales en Streamlit Cloud
+# Fix para imports locales en Streamlit Cloud
 current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
@@ -39,7 +40,8 @@ st.markdown("""
 
 # ==================== ESTADO DE SESIÓN ====================
 for key in ['df', 'df_mapped', 'prep', 'results']:
-    if key not in st.session_state: st.session_state[key] = None
+    if key not in st.session_state:
+        st.session_state[key] = None
 
 # ==================== FUNCIONES AUXILIARES ====================
 def map_uci_to_simple(df):
@@ -47,7 +49,6 @@ def map_uci_to_simple(df):
     Mapea columnas del dataset UCI a nombres simplificados para la app
     """
     df_mapped = df.copy()
-    
     # Mapeo de columnas UCI → nombres simplificados
     column_mapping = {
         'age': 'edad',
@@ -63,27 +64,27 @@ def map_uci_to_simple(df):
         'status': 'abandono',
         'target': 'abandono'
     }
-    
+
     # Renombrar columnas que existen
     for uci_col, simple_name in column_mapping.items():
         if uci_col in df_mapped.columns and simple_name not in df_mapped.columns:
             df_mapped[simple_name] = df_mapped[uci_col]
-    
+
     # Crear 'asistencia' como porcentaje si no existe
     if 'asistencia' not in df_mapped.columns and 'asistencia_total' in df_mapped.columns:
         df_mapped['asistencia'] = (df_mapped['asistencia'] / df_mapped['asistencia_total'].replace(0, 1) * 100).clip(0, 100)
-    
+
     # Normalizar 'abandono' a binario: 1=Abandono, 0=No Abandono
     if 'abandono' in df_mapped.columns:
         df_mapped['abandono'] = df_mapped['abandono'].astype(str).str.lower().apply(
-            lambda x: 1 if 'dropout' in x or (x in ['1', '0'] and df_mapped['abandono'].dtype in ['int64', 'float64'] and x == '0') else 0
+            lambda x: 1 if 'dropout' in x else 0
         )
-    
+
     # Asegurar columnas numéricas básicas
     for col in ['edad', 'gpa', 'asistencia', 'horas_estudio']:
         if col in df_mapped.columns and df_mapped[col].dtype == 'object':
             df_mapped[col] = pd.to_numeric(df_mapped[col], errors='coerce')
-    
+
     return df_mapped
 
 def get_key_columns(df):
@@ -93,8 +94,8 @@ def get_key_columns(df):
 
 # ==================== SIDEBAR ====================
 st.sidebar.title("📋 Navegación")
-page = st.sidebar.radio("Selecciona una sección:", 
-    ["🏠 Inicio", "📊 Análisis EDA", "🤖 Entrenamiento", "🔮 Predicción"])
+page = st.sidebar.radio("Selecciona una sección:",
+                        ["🏠 Inicio", "📊 Análisis EDA", "🤖 Entrenamiento", "🔮 Predicción"])
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 📥 Cargar Datos")
@@ -107,7 +108,9 @@ if st.sidebar.button("🌐 Cargar Dataset UCI Oficial", use_container_width=True
             df_proc = preprocess_dataset(df_raw)
             target_col = next((c for c in ['target', 'status', 'Target', 'Status'] if c in df_proc.columns), None)
             if target_col:
-                df_proc['Abandono'] = df_proc[target_col].apply(lambda x: 1 if 'dropout' in str(x).lower() else 0)
+                df_proc['Abandono'] = df_proc[target_col].astype(str).str.strip().str.lower().apply(
+                    lambda x: 1 if x in ['dropout', 'abandono', '1'] else 0
+                )
             else:
                 df_proc['Abandono'] = np.random.choice([0, 1], len(df_proc), p=[0.3, 0.7])
             st.session_state.df = df_proc
@@ -127,7 +130,6 @@ if st.sidebar.button("🎲 Usar datos de demostración", use_container_width=Tru
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 📁 Sube un archivo CSV")
 st.sidebar.info("📌 El archivo debe contener una columna 'Abandono' o similar para la variable objetivo")
-
 uploaded_file = st.sidebar.file_uploader(
     "🔍 Selecciona un archivo CSV de tu ordenador",
     type=['csv'],
@@ -142,7 +144,9 @@ if uploaded_file is not None:
             target_candidates = ['target', 'status', 'estado', 'y']
             found_target = next((c for c in target_candidates if c in df_up.columns), None)
             if found_target:
-                df_up['abandono'] = df_up[found_target].apply(lambda x: 1 if 'dropout' in str(x).lower() or x in [1, '1', 'si'] else 0)
+                df_up['abandono'] = df_up[found_target].astype(str).str.strip().str.lower().apply(
+                    lambda x: 1 if x in ['dropout', 'abandono', '1', 'si'] else 0
+                )
             else:
                 df_up['abandono'] = np.random.choice([0, 1], len(df_up), p=[0.3, 0.7])
         st.session_state.df = df_up
@@ -160,17 +164,22 @@ if st.session_state.df is not None:
 if page == "🏠 Inicio":
     st.markdown("### 📚 Sobre el Proyecto")
     st.markdown("Este proyecto implementa un modelo de Machine Learning clásico para predecir el riesgo de abandono escolar en estudiantes.")
+    
     st.markdown("### 🎯 Objetivos")
     st.markdown("- Identificar estudiantes en riesgo de abandono\n- Proporcionar recomendaciones de intervención\n- Analizar factores clave del abandono escolar")
+    
     st.markdown("### 📋 Formulación del Problema")
     st.markdown("- **Tipo de aprendizaje:** Supervisado\n- **Tarea:** Clasificación binaria\n- **Variable objetivo:** Abandono (0/1)\n- **Métrica de éxito:** F1-Score, ROC-AUC")
+    
     st.markdown("### 🤖 Modelos Implementados")
     st.markdown("Se utilizan 4 modelos ML clásicos:\n1. **Logistic Regression** → Modelo lineal simple y interpretable\n2. **Random Forest** → Ensemble de árboles de decisión\n3. **Gradient Boosting** → Boosting secuencial de árboles\n4. **Support Vector Machine (SVM)** → Máquinas de vectores de soporte")
+    
     st.markdown("---")
     m1, m2, m3 = st.columns(3)
     m1.metric("📊 Modelos", "4", "Clasificadores")
     m2.metric("📈 Métricas", "6+", "Evaluación")
     m3.metric("🎓 Categoría", "ML Clásico", "Fundació URV")
+    
     st.markdown("---")
     st.markdown("### 📊 Características del Dataset\nEl modelo utiliza las siguientes características:\n- **Edad:** Edad del estudiante\n- **GPA:** Promedio de calificaciones\n- **Asistencia:** Porcentaje de asistencia\n- **Horas_Estudio:** Horas de estudio semanales\n- **Socioeconomico:** Nivel socioeconómico\n- **Primer_Trimestre:** Desempeño primer trimestre\n- **Motivacion:** Nivel de motivación")
 
@@ -194,7 +203,9 @@ elif page == "📊 Análisis EDA":
         if 'abandono' not in df.columns:
             for alt in ['target', 'status', 'Target', 'Status']:
                 if alt in df.columns:
-                    df['abandono'] = df[alt].apply(lambda x: 1 if 'dropout' in str(x).lower() else 0)
+                    df['abandono'] = df[alt].astype(str).str.strip().str.lower().apply(
+                        lambda x: 1 if x in ['dropout', 'abandono', '1'] else 0
+                    )
                     break
             if 'abandono' not in df.columns:
                 df['abandono'] = np.random.choice([0, 1], len(df), p=[0.3, 0.7])
@@ -206,9 +217,7 @@ elif page == "📊 Análisis EDA":
             if df['abandono'].dtype == 'object':
                 dropout_count = df['abandono'].astype(str).str.lower().isin(['dropout', 'abandono', '1']).sum()
             else:
-                count_1 = (df['abandono'] == 1).sum()
-                count_0 = (df['abandono'] == 0).sum()
-                dropout_count = count_1 if count_1 < count_0 else count_0
+                dropout_count = (df['abandono'] == 1).sum()
             dropout_rate = (dropout_count / len(df)) * 100
             
             # KPIs
@@ -234,7 +243,7 @@ elif page == "📊 Análisis EDA":
             # ✅ DISTRIBUCIÓN DE ABANDONOS (%) - CORREGIDO
             st.subheader("🥧 Distribución de Abandonos (%)")
             
-            # 🔑 FIX CRÍTICO: .sort_index() garantiza orden por etiqueta de clase (0, 1), no por frecuencia
+            # 🔑 FIX CRÍTICO: .sort_index() garantiza orden por etiqueta de clase (0, 1)
             abandono_counts = df['abandono'].value_counts().sort_index()
             
             # Mapeo dinámico de etiquetas basado en el valor REAL de la clase
@@ -273,7 +282,7 @@ elif page == "📊 Análisis EDA":
             if len(numeric_key_cols) >= 2:
                 corr = df[numeric_key_cols + ['abandono']].corr()
                 st.plotly_chart(px.imshow(corr, text_auto='.2f', color_continuous_scale='RdBu_r', 
-                                         title="Correlaciones entre Variables Clave"), use_container_width=True)
+                                          title="Correlaciones entre Variables Clave"), use_container_width=True)
             
             # ✅ VISUALIZACIÓN POR VARIABLE
             st.subheader("📈 Visualización por Variable")
@@ -294,6 +303,7 @@ elif page == "📊 Análisis EDA":
 
 elif page == "🤖 Entrenamiento":
     st.title("🤖 Entrenamiento de Modelos")
+    
     if st.session_state.df is None or 'abandono' not in st.session_state.df.columns:
         st.warning("⚠️ Carga un dataset con columna `abandono`")
     else:
@@ -302,7 +312,7 @@ elif page == "🤖 Entrenamiento":
         test_size = test_pct / 100.0
         n_train = int(len(df) * (1-test_size))
         n_test = len(df) - n_train
-        st.info(f"📋 **División de Datos:**\n✅ Entrenamiento: **{n_train}** registros ({(1-test_size)*100:.0f}%)\n🔍 Prueba: **{n_test}** registros ({test_size*100:.0f}%)")
+        st.info(f"📋 División de Datos:\n✅ Entrenamiento: {n_train} registros ({(1-test_size)*100:.0f}%)\n🔍 Prueba: {n_test} registros ({test_size*100:.0f}%)")
         
         if st.button("🚀 Entrenar 4 Modelos", type="primary"):
             with st.spinner("Preparando datos UCI y entrenando (~15s)..."):
@@ -312,7 +322,7 @@ elif page == "🤖 Entrenamiento":
                     X = df_clean[feature_cols]
                     y = df_clean['abandono']
                     
-                    cat_cols = X.select_dtypes(include=['object']).columns.tolist()
+                    cat_cols = X.select_dtypes(include=['object']).columns.tolist() 
                     encoders = {}
                     X_enc = X.copy()
                     for col in cat_cols:
@@ -359,7 +369,7 @@ elif page == "🤖 Entrenamiento":
             for name, res in st.session_state.results.items():
                 m = res['metrics']
                 rows.append({'Modelo': name.replace('_',' ').title(), 
-                            'Accuracy': f"{m['accuracy']:.3f}", 'Precision': f"{m['precision']:.3f}",
+                             'Accuracy': f"{m['accuracy']:.3f}", 'Precision': f"{m['precision']:.3f}",
                             'Recall': f"{m['recall']:.3f}", 'F1-Score': f"{m['f1']:.3f}", 
                             'ROC-AUC': f"{m.get('roc_auc', 0):.3f}"})
             st.dataframe(pd.DataFrame(rows), use_container_width=True)
@@ -380,11 +390,12 @@ elif page == "🤖 Entrenamiento":
 
 elif page == "🔮 Predicción":
     st.title("🔮 Predicción Individual")
+    
     if st.session_state.prep is None:
         st.info("ℹ️ Entrena primero en la sección 🤖 Entrenamiento")
     else:
         prep = st.session_state.prep
-        st.markdown("📌 *Ajusta los valores para ver cómo cambia la probabilidad en tiempo real*")
+        st.markdown("📌 Ajusta los valores para ver cómo cambia la probabilidad en tiempo real")
         
         c1, c2 = st.columns(2)
         with c1:
@@ -440,7 +451,7 @@ elif page == "🔮 Predicción":
 st.markdown("---")
 st.markdown("""
 <div style='text-align: center; color: #6c757d; font-size: 0.85rem;'>
-    <p>🎓 ML Clásico - Predicción de Abandono Escolar | Artificial Intelligence Foundations | Fundació URV</p>
-    <p>Dataset: UCI Student Dropout and Academic Success | Desarrollado con Streamlit, Scikit-learn y Plotly</p>
+<p>🎓 ML Clásico - Predicción de Abandono Escolar | Artificial Intelligence Foundations | Fundació URV</p>
+<p>Dataset: UCI Student Dropout and Academic Success | Desarrollado con Streamlit, Scikit-learn y Plotly</p>
 </div>
 """, unsafe_allow_html=True)
