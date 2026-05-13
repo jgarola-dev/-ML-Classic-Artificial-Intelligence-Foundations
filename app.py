@@ -182,6 +182,7 @@ if page == "🏠 Inicio":
 
 elif page == "📊 Análisis EDA":
     st.title("📊 Análisis Exploratorio de Datos")
+    st.markdown("---")
     
     if st.session_state.df is None:
         st.warning("⚠️ Carga datos primero en la barra lateral (UCI, Demo o CSV)")
@@ -296,6 +297,7 @@ elif page == "📊 Análisis EDA":
 
 elif page == "🤖 Entrenamiento":
     st.title("🤖 Entrenamiento de Modelos")
+    st.markdown("---")
     
     if st.session_state.df is None or 'abandono' not in st.session_state.df.columns:
         st.warning("⚠️ Carga un dataset con columna `abandono`")
@@ -383,6 +385,7 @@ elif page == "🤖 Entrenamiento":
 
 elif page == "🔮 Predicción":
     st.title("🔮 Predicción Individual")
+    st.markdown("---")
     
     if st.session_state.prep is None:
         st.info("ℹ️ Entrena primero en la sección 🤖 Entrenamiento")
