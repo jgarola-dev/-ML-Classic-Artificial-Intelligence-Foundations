@@ -14,7 +14,7 @@ warnings.filterwarnings('ignore')
 def load_uci_dataset():
     """Carga el dataset UCI con gestión de errores robusta"""
     try:
-        url = "https://archive.ics.uci.edu/static/public/697/predict+students+dropout+and+academic+success"
+        url = "https://archive.ics.uci.edu/static/public/697/predict+students+dropout+and+academic+success.csv"
         response = requests.get(url, timeout=30)
         response.raise_for_status()
         return pd.read_csv(pd.io.common.BytesIO(response.content))
