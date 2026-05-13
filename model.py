@@ -7,8 +7,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.svm import SVC
 from sklearn.metrics import (accuracy_score, precision_score, recall_score,
-                             f1_score, roc_auc_score, confusion_matrix,
-                             classification_report)
+                             f1_score, roc_auc_score)
 from sklearn.inspection import permutation_importance
 import warnings
 warnings.filterwarnings('ignore')
@@ -55,7 +54,6 @@ class DropoutPredictor:
         """Retorna importancia segura para árboles, lineales y SVM"""
         if feature_names is None:
             return None
-        
         try:
             if hasattr(self.model, 'feature_importances_'):
                 importances = self.model.feature_importances_
@@ -71,19 +69,7 @@ class DropoutPredictor:
                     importances = np.zeros(len(feature_names))
                     
             df_imp = pd.DataFrame({'feature': feature_names, 'importance': importances})
-            df_imp['importance'] = df_imp['importance'].clip(lower=0)  # Evita valores negativos
+            df_imp['importance'] = df_imp['importance'].clip(lower=0)
             return df_imp.sort_values('importance', ascending=False).head(top_n)
         except Exception:
             return pd.DataFrame({'feature': feature_names[:top_n], 'importance': [0]*top_n})
-
-def compare_models(X_train, X_test, y_train, y_test, feature_names):
-    results = {}
-    for m in ['logistic_regression', 'random_forest', 'gradient_boosting', 'svm']:
-        clf = DropoutPredictor(model_type=m)
-        clf.train(X_train, y_train)
-        results[m] = {
-            'model': clf,
-            'metrics': clf.evaluate(X_test, y_test),
-            'importance': clf.get_feature_importance(feature_names)
-        }
-    return results
