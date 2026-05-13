@@ -7,7 +7,8 @@ from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.model_selection import train_test_split
 
 def handle_missing_values(df, strategy='mean'):
-    if strategy == 'drop': return df.dropna()
+    if strategy == 'drop':
+        return df.dropna()
     elif strategy == 'mean':
         numeric_cols = df.select_dtypes(include=[np.number]).columns
         df[numeric_cols] = df[numeric_cols].fillna(df[numeric_cols].mean())
@@ -17,7 +18,8 @@ def handle_missing_values(df, strategy='mean'):
     return df
 
 def encode_categorical(df, categorical_cols=None):
-    if categorical_cols is None: categorical_cols = df.select_dtypes(include=['object']).columns.tolist()
+    if categorical_cols is None:
+        categorical_cols = df.select_dtypes(include=['object']).columns.tolist()
     encoders = {}
     df_encoded = df.copy()
     for col in categorical_cols:
