@@ -5,31 +5,27 @@ import pandas as pd
 import numpy as np
 import streamlit as st
 import requests
-from pathlib import Path
 import warnings
 warnings.filterwarnings('ignore')
 
 @st.cache_data(ttl=3600)
 def load_uci_dataset():
-    """Carga el dataset UCI con gestión de errores robusta y fallback"""
-    # URLs alternativas para mayor robustez
+    """Carga el dataset UCI con gestión de errores robusta y fallbacks"""
     urls = [
         "https://archive.ics.uci.edu/static/public/697/predict+students+dropout+and+academic+success.csv",
         "https://archive.ics.uci.edu/ml/machine-learning-databases/00697/student_dropout.csv"
     ]
-    
     for url in urls:
         try:
             response = requests.get(url, timeout=30)
             response.raise_for_status()
             return pd.read_csv(pd.io.common.BytesIO(response.content))
-        except Exception as e:
-            print(f"⚠️ Intento fallido con {url}: {e}")
+        except Exception:
             continue
     return None
 
 def create_sample_dataset(n_samples=2000):
-    """Dataset demo con columnas compatibles y target garantizado"""
+    """Dataset demo con columnas compatibles y target garantizado (en español)"""
     np.random.seed(42)
     return pd.DataFrame({
         'edad': np.random.randint(17, 35, n_samples),
@@ -47,7 +43,7 @@ def preprocess_dataset(df):
     # 1. Normalizar nombres a snake_case
     df.columns = df.columns.str.strip().str.lower().str.replace(r'[^a-z0-9]', '_', regex=True)
     
-    # 2. Imputación segura (sin dropna agresivo)
+    # 2. Imputación segura
     num_cols = df.select_dtypes(include='number').columns
     cat_cols = df.select_dtypes(include='object').columns
 
@@ -57,19 +53,18 @@ def preprocess_dataset(df):
         mode_val = df[col].mode()
         fill_val = mode_val.iloc[0] if not mode_val.empty else 'desconocido'
         df[col] = df[col].fillna(fill_val)
-    
-    # 3. Crear target 'abandono' explícitamente (manejo correcto de 3 clases UCI)
-    target_candidates = ['target', 'status', 'dropout', 'abandono']
+        
+    # 3. Crear target 'abandono' explícitamente
+    target_candidates = ['target', 'status']
     target_found = next((c for c in target_candidates if c in df.columns), None)
 
     if target_found:
-        # Manejo explícito: Dropout=1, Enrolled/Graduate=0
+        # UCI original: Dropout, Enrolled, Graduate
         df['abandono'] = df[target_found].astype(str).str.strip().str.lower().apply(
-            lambda x: 1 if x in ['dropout', 'abandono', '1'] else 0
+            lambda x: 1 if 'dropout' in x else 0
         )
     else:
-        # Fallback: generar target aleatorio balanceado
-        df['abandono'] = np.random.choice([0, 1], len(df), p=[0.7, 0.3])
+        df['abandono'] = np.random.choice([0, 1], len(df), p=[0.3, 0.7])
         
     return df
 
