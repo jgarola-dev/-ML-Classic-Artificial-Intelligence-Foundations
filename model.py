@@ -15,6 +15,7 @@ warnings.filterwarnings('ignore')
 
 class DropoutPredictor:
     """Modelo ML para predicción de abandono escolar"""
+    
     def __init__(self, model_type='random_forest', random_state=42):
         self.model_type = model_type
         self.random_state = random_state
@@ -22,7 +23,7 @@ class DropoutPredictor:
         self.metrics = {}
         self.X_test = None
         self.y_test = None
-
+    
     def _create_model(self):
         models = {
             'logistic_regression': LogisticRegression(random_state=self.random_state, max_iter=1000, class_weight='balanced'),
@@ -31,10 +32,10 @@ class DropoutPredictor:
             'svm': SVC(kernel='rbf', probability=True, random_state=self.random_state, class_weight='balanced')
         }
         return models.get(self.model_type, RandomForestClassifier(random_state=self.random_state))
-
+    
     def train(self, X_train, y_train):
         self.model.fit(X_train, y_train)
-
+    
     def evaluate(self, X_test, y_test):
         self.X_test = X_test
         self.y_test = y_test
@@ -49,12 +50,12 @@ class DropoutPredictor:
             'roc_auc': roc_auc_score(y_test, y_proba) if y_proba is not None else 0.5
         }
         return self.metrics
-
+    
     def get_feature_importance(self, feature_names=None, top_n=10):
         """Retorna importancia segura para árboles, lineales y SVM"""
         if feature_names is None:
             return None
-            
+        
         try:
             if hasattr(self.model, 'feature_importances_'):
                 importances = self.model.feature_importances_
@@ -63,14 +64,14 @@ class DropoutPredictor:
             else:
                 # Fallback para SVM RBF: Permutation Importance
                 if self.X_test is not None and self.y_test is not None:
-                    perm = permutation_importance(self.model, self.X_test, self.y_test, 
+                    perm = permutation_importance(self.model, self.X_test, self.y_test,  
                                                 n_repeats=5, random_state=42, n_jobs=-1)
                     importances = perm.importances_mean
                 else:
                     importances = np.zeros(len(feature_names))
                     
             df_imp = pd.DataFrame({'feature': feature_names, 'importance': importances})
-            df_imp['importance'] = df_imp['importance'].clip(lower=0) # Evita valores negativos
+            df_imp['importance'] = df_imp['importance'].clip(lower=0)  # Evita valores negativos
             return df_imp.sort_values('importance', ascending=False).head(top_n)
         except Exception:
             return pd.DataFrame({'feature': feature_names[:top_n], 'importance': [0]*top_n})
