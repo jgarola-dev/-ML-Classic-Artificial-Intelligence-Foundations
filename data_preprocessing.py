@@ -3,8 +3,9 @@ Data preprocessing module for student dropout prediction
 """
 import pandas as pd
 import numpy as np
-from sklearn.preprocessing import StandardScaler, LabelEncoder
-from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import LabelEncoder
+import warnings
+warnings.filterwarnings('ignore')
 
 def handle_missing_values(df, strategy='mean'):
     if strategy == 'drop':
