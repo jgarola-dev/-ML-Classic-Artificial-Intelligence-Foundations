@@ -156,6 +156,8 @@ if st.session_state.df is not None:
 
 # ==================== PÁGINAS ====================
 if page == "🏠 Inicio":
+    st.markdown('<div class="main-title">🎓 Predicción de Abandono Escolar</div>', unsafe_allow_html=True)
+    
     st.markdown("### 📚 Sobre el Proyecto")
     st.markdown("Este proyecto implementa un modelo de Machine Learning clásico para predecir el riesgo de abandono escolar en estudiantes.")
     
