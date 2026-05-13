@@ -24,18 +24,37 @@ class DropoutPredictor:
         self.y_test = None
     
     def _create_model(self):
+        """Factory de modelos con configuración robusta"""
         models = {
-            'logistic_regression': LogisticRegression(random_state=self.random_state, max_iter=1000, class_weight='balanced'),
-            'random_forest': RandomForestClassifier(n_estimators=100, random_state=self.random_state, class_weight='balanced'),
-            'gradient_boosting': GradientBoostingClassifier(n_estimators=100, random_state=self.random_state),
-            'svm': SVC(kernel='rbf', probability=True, random_state=self.random_state, class_weight='balanced')
+            'logistic_regression': LogisticRegression(
+                random_state=self.random_state, 
+                max_iter=1000, 
+                class_weight='balanced'
+            ),
+            'random_forest': RandomForestClassifier(
+                n_estimators=100, 
+                random_state=self.random_state, 
+                class_weight='balanced'
+            ),
+            'gradient_boosting': GradientBoostingClassifier(
+                n_estimators=100, 
+                random_state=self.random_state
+            ),
+            'svm': SVC(
+                kernel='rbf', 
+                probability=True, 
+                random_state=self.random_state, 
+                class_weight='balanced'
+            )
         }
         return models.get(self.model_type, RandomForestClassifier(random_state=self.random_state))
     
     def train(self, X_train, y_train):
+        """Entrena el modelo"""
         self.model.fit(X_train, y_train)
     
     def evaluate(self, X_test, y_test):
+        """Evalúa el modelo y retorna métricas"""
         self.X_test = X_test
         self.y_test = y_test
         y_pred = self.model.predict(X_test)
@@ -51,25 +70,55 @@ class DropoutPredictor:
         return self.metrics
     
     def get_feature_importance(self, feature_names=None, top_n=10):
-        """Retorna importancia segura para árboles, lineales y SVM"""
+        """Retorna importancia de características compatible con todos los modelos"""
         if feature_names is None:
             return None
+        
         try:
+            # Árboles: feature_importances_ nativo
             if hasattr(self.model, 'feature_importances_'):
                 importances = self.model.feature_importances_
+            
+            # Modelos lineales: coeficientes absolutos
             elif hasattr(self.model, 'coef_') and self.model.coef_ is not None:
                 importances = np.abs(self.model.coef_[0])
+            
+            # SVM RBF / otros: Permutation Importance como fallback
             else:
-                # Fallback para SVM RBF: Permutation Importance
                 if self.X_test is not None and self.y_test is not None:
-                    perm = permutation_importance(self.model, self.X_test, self.y_test,  
-                                                n_repeats=5, random_state=42, n_jobs=-1)
+                    perm = permutation_importance(
+                        self.model, self.X_test, self.y_test,
+                        n_repeats=5, random_state=42, n_jobs=-1
+                    )
                     importances = perm.importances_mean
                 else:
                     importances = np.zeros(len(feature_names))
-                    
-            df_imp = pd.DataFrame({'feature': feature_names, 'importance': importances})
+            
+            # DataFrame limpio con valores no negativos
+            df_imp = pd.DataFrame({
+                'feature': feature_names, 
+                'importance': importances
+            })
             df_imp['importance'] = df_imp['importance'].clip(lower=0)
             return df_imp.sort_values('importance', ascending=False).head(top_n)
+            
         except Exception:
-            return pd.DataFrame({'feature': feature_names[:top_n], 'importance': [0]*top_n})
+            # Fallback seguro: retorna DataFrame vacío con estructura válida
+            return pd.DataFrame({
+                'feature': feature_names[:top_n] if feature_names else [], 
+                'importance': [0]*min(top_n, len(feature_names) if feature_names else 0)
+            })
+
+
+def compare_models(X_train, X_test, y_train, y_test, feature_names):
+    """Entrena y compara los 4 modelos clásicos"""
+    results = {}
+    for m_name in ['logistic_regression', 'random_forest', 'gradient_boosting', 'svm']:
+        clf = DropoutPredictor(model_type=m_name)
+        clf.train(X_train, y_train)
+        results[m_name] = {
+            'model': clf,
+            'metrics': clf.evaluate(X_test, y_test),
+            'importance': clf.get_feature_importance(feature_names)
+        }
+    return results
